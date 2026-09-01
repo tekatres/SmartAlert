@@ -1,4 +1,7 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, db } from "@/services/firebase";
 import { TradingSignalDoc } from "@/types";
 
 export type MarginMode = "ISOLATED" | "CROSS";
@@ -35,24 +38,121 @@ const STORAGE_KEY_BALANCE = "smartalert_binance_paper_balance";
 const STORAGE_KEY_TRADES = "smartalert_binance_paper_trades";
 const INITIAL_BALANCE = 10000;
 
+interface AccountState {
+  balance: number;
+  trades: PaperTrade[];
+}
+
+function loadLocal(): AccountState {
+  try {
+    const savedB = localStorage.getItem(STORAGE_KEY_BALANCE);
+    const savedT = localStorage.getItem(STORAGE_KEY_TRADES);
+    const balance = savedB ? parseFloat(savedB) : INITIAL_BALANCE;
+    const trades = savedT ? (JSON.parse(savedT) as PaperTrade[]) : [];
+    return { balance: isNaN(balance) ? INITIAL_BALANCE : balance, trades };
+  } catch {
+    return { balance: INITIAL_BALANCE, trades: [] };
+  }
+}
+
+function persistLocal(state: AccountState) {
+  localStorage.setItem(STORAGE_KEY_BALANCE, state.balance.toString());
+  localStorage.setItem(STORAGE_KEY_TRADES, JSON.stringify(state.trades));
+}
+
+function accountSignature(state: AccountState) {
+  return JSON.stringify(state);
+}
+
 export function usePaperTrading() {
-  const [balance, setBalance] = useState<number>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_BALANCE);
-    return saved ? parseFloat(saved) : INITIAL_BALANCE;
-  });
+  const [account, setAccount] = useState<AccountState>(loadLocal);
+  const [ready, setReady] = useState(false);
 
-  const [trades, setTrades] = useState<PaperTrade[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_TRADES);
-    return saved ? JSON.parse(saved) : [];
-  });
+  const sourceRef = useRef<"local" | "cloud">("local");
+  const uidRef = useRef<string | null>(null);
+  const lastPersistedRef = useRef<string>("");
+  const unsubCloudRef = useRef<(() => void) | null>(null);
 
+  // ---- auth + cloud sync subscription ----
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_BALANCE, balance.toString());
-  }, [balance]);
+    let cancelled = false;
 
+    const unsubAuth = onAuthStateChanged(auth, (u) => {
+      if (cancelled) return;
+      uidRef.current = u?.uid ?? null;
+
+      if (unsubCloudRef.current) {
+        unsubCloudRef.current();
+        unsubCloudRef.current = null;
+      }
+
+      if (!u) {
+        setReady(false);
+        sourceRef.current = "local";
+        setAccount(loadLocal());
+        setReady(true);
+        return;
+      }
+
+      setReady(false);
+      const ref = doc(db, "users", u.uid, "paper", "account");
+      unsubCloudRef.current = onSnapshot(
+        ref,
+        (snap) => {
+          if (cancelled) return;
+          if (snap.exists()) {
+            const data = snap.data();
+            setAccount({
+              balance: typeof data.balance === "number" ? data.balance : INITIAL_BALANCE,
+              trades: Array.isArray(data.trades) ? (data.trades as PaperTrade[]) : [],
+            });
+          } else {
+            // First time on this account: seed the cloud doc with local data (if any).
+            const local = loadLocal();
+            setAccount(local);
+            lastPersistedRef.current = accountSignature(local);
+            setDoc(ref, { ...local, updated_at: serverTimestamp() }).catch((err) =>
+              console.warn("[usePaperTrading] seed write failed:", err.code)
+            );
+          }
+          sourceRef.current = "cloud";
+          setReady(true);
+        },
+        (err) => {
+          console.warn("[usePaperTrading] snapshot error:", err.code);
+          sourceRef.current = "local";
+          setAccount(loadLocal());
+          setReady(true);
+        }
+      );
+    });
+
+    return () => {
+      cancelled = true;
+      unsubAuth();
+      if (unsubCloudRef.current) unsubCloudRef.current();
+    };
+  }, []);
+
+  // ---- persist changes to the active source (cloud if signed in, else localStorage) ----
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_TRADES, JSON.stringify(trades));
-  }, [trades]);
+    if (!ready) return;
+    const sig = accountSignature(account);
+    if (sig === lastPersistedRef.current) return;
+    lastPersistedRef.current = sig;
+
+    if (sourceRef.current === "cloud" && uidRef.current) {
+      setDoc(
+        doc(db, "users", uidRef.current, "paper", "account"),
+        { balance: account.balance, trades: account.trades, updated_at: serverTimestamp() }
+      ).catch((err) => {
+        console.warn("[usePaperTrading] write failed:", err.code);
+        lastPersistedRef.current = "";
+      });
+    } else {
+      persistLocal(account);
+    }
+  }, [account, ready]);
 
   const openTradeParams = (params: {
     symbol: string;
@@ -110,8 +210,10 @@ export function usePaperTrading() {
       createdAt: new Date().toISOString(),
     };
 
-    setTrades((prev) => [newTrade, ...prev]);
-    setBalance((prev) => prev - marginUsd);
+    setAccount((prev) => ({
+      balance: prev.balance - marginUsd,
+      trades: [newTrade, ...prev.trades],
+    }));
   };
 
   const openTrade = (signal: TradingSignalDoc, marginUsd: number) => {
@@ -131,52 +233,53 @@ export function usePaperTrading() {
   };
 
   const closeTrade = (tradeId: string, outcome: "CLOSED_TP1" | "CLOSED_TP2" | "CLOSED_SL" | "CLOSED_MANUAL" | "CLOSED_MARKET", livePnlUsd?: number) => {
-    setTrades((prev) =>
-      prev.map((t) => {
-        if (t.id !== tradeId) return t;
+    setAccount((prev) => {
+      const trade = prev.trades.find((t) => t.id === tradeId);
+      if (!trade) return prev;
 
-        let profitUsd = 0;
-        let roePct = 0;
+      let profitUsd = 0;
+      let roePct = 0;
 
-        if (outcome === "CLOSED_MARKET" && livePnlUsd !== undefined) {
-          // Close at real live price PnL
-          profitUsd = livePnlUsd;
-          roePct = (livePnlUsd / t.marginUsd) * 100;
-        } else if (outcome === "CLOSED_TP1") {
-          roePct = t.tp1Pct * t.leverage * 0.5;
-          profitUsd = t.positionUsd * (t.tp1Pct / 100) * 0.5;
-        } else if (outcome === "CLOSED_TP2") {
-          roePct = t.tp2Pct * t.leverage;
-          profitUsd = t.positionUsd * (t.tp2Pct / 100);
-        } else if (outcome === "CLOSED_SL") {
-          roePct = -t.slPct * t.leverage;
-          profitUsd = -t.positionUsd * (t.slPct / 100);
-        } else {
-          roePct = 1.0 * t.leverage;
-          profitUsd = t.positionUsd * 0.01;
-        }
+      if (outcome === "CLOSED_MARKET" && livePnlUsd !== undefined) {
+        // Close at real live price PnL
+        profitUsd = livePnlUsd;
+        roePct = (livePnlUsd / trade.marginUsd) * 100;
+      } else if (outcome === "CLOSED_TP1") {
+        roePct = trade.tp1Pct * trade.leverage * 0.5;
+        profitUsd = trade.positionUsd * (trade.tp1Pct / 100) * 0.5;
+      } else if (outcome === "CLOSED_TP2") {
+        roePct = trade.tp2Pct * trade.leverage;
+        profitUsd = trade.positionUsd * (trade.tp2Pct / 100);
+      } else if (outcome === "CLOSED_SL") {
+        roePct = -trade.slPct * trade.leverage;
+        profitUsd = -trade.positionUsd * (trade.slPct / 100);
+      } else {
+        roePct = 1.0 * trade.leverage;
+        profitUsd = trade.positionUsd * 0.01;
+      }
 
-        const returnTotal = t.marginUsd + profitUsd;
-        setBalance((b) => b + returnTotal);
+      const closed: PaperTrade = {
+        ...trade,
+        status: outcome === "CLOSED_MARKET" ? "CLOSED_MANUAL" : outcome,
+        pnlUsd: profitUsd,
+        roePct,
+        closedAt: new Date().toISOString(),
+      };
 
-        return {
-          ...t,
-          status: outcome === "CLOSED_MARKET" ? "CLOSED_MANUAL" : outcome,
-          pnlUsd: profitUsd,
-          roePct,
-          closedAt: new Date().toISOString(),
-        };
-      })
-    );
+      return {
+        balance: prev.balance + trade.marginUsd + profitUsd,
+        trades: prev.trades.map((t) => (t.id === tradeId ? closed : t)),
+      };
+    });
   };
 
   const resetAccount = () => {
-    setBalance(INITIAL_BALANCE);
-    setTrades([]);
     localStorage.removeItem(STORAGE_KEY_BALANCE);
     localStorage.removeItem(STORAGE_KEY_TRADES);
+    setAccount({ balance: INITIAL_BALANCE, trades: [] });
   };
 
+  const { balance, trades } = account;
   const closedTrades = trades.filter((t) => t.status !== "OPEN");
   const winTrades = closedTrades.filter((t) => t.pnlUsd > 0);
   const winRate = closedTrades.length > 0 ? (winTrades.length / closedTrades.length) * 100 : 0;
