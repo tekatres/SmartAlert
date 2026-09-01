@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.log
+.DS_Store
+.firebase/
+functions/lib/
+functions/node_modules/
+.venv/
+__pycache__/

@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "seed": "node functions/seed-alerts.mjs",
+    "seed:watch": "node scripts/seed-watch.mjs"
+  },
+  "dependencies": {
+    "firebase": "^12.14.0"
+  }
+}

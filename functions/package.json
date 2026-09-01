@@ -1,0 +1,35 @@
+{
+  "name": "functions",
+  "description": "Smart Alerts AI - Cloud Functions",
+  "scripts": {
+    "lint": "echo \"lint\"",
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions,firestore",
+    "shell": "npm run build && firebase functions:shell",
+    "start": "npm run shell",
+    "test": "jest --testPathPattern=test/",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "type": "commonjs",
+  "dependencies": {
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.2.0",
+    "stripe": "^17.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "jest": "^29.7.0"
+  },
+  "private": true,
+  "overrides": {
+    "glob": "^13.0.0",
+    "inflight": "npm:empty-npm-package@1.0.0",
+    "uuid": "^11.1.0"
+  }
+}

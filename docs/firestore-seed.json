@@ -1,0 +1,65 @@
+{
+  "alerts/_example_alert_id": {
+    "id": "a1b2c3d4e5f6g7h8i9j0",
+    "type": "price_surge",
+    "severity": "high",
+    "coin_id": "bitcoin",
+    "symbol": "BTC",
+    "name": "Bitcoin",
+    "price_usd": 67890.12,
+    "previous_price_usd": 65100.45,
+    "change_pct": 4.28,
+    "volume_24h_usd": 28456789012.5,
+    "volume_ratio": 1.85,
+    "score": 82,
+    "title": "🚀 BTC repunta 4.28%",
+    "summary": "BTC sube un 4.28% en los últimos minutos, con volumen alto.",
+    "explanation": "Movimiento alcista con confirmación de volumen. Posible continuación si el precio mantiene el nivel actual. Alta calidad estadística: prioriza esta alerta.",
+    "recommended_action": "Considera entry en retroceso hacia soporte cercano con stop ajustado.",
+    "created_at": "2026-06-06T12:34:56Z",
+    "expires_at": "2026-06-06T14:34:56Z",
+    "delivered_count": 12
+  },
+  "alerts/_example_alert_id_2": {
+    "id": "b2c3d4e5f6g7h8i9j0k1",
+    "type": "volume_spike",
+    "severity": "medium",
+    "coin_id": "solana",
+    "symbol": "SOL",
+    "name": "Solana",
+    "price_usd": 167.42,
+    "previous_price_usd": 165.10,
+    "change_pct": 1.40,
+    "volume_24h_usd": 3120000000,
+    "volume_ratio": 2.35,
+    "score": 64,
+    "title": "📊 SOL registra pico de volumen",
+    "summary": "Volumen 24h de SOL multiplicado por 2.35x respecto a la media.",
+    "explanation": "Pico de actividad inusual. Frecuentemente precede a movimientos direccionales fuertes. Calidad moderada: monitoriza evolución.",
+    "recommended_action": "Observa el precio en los próximos minutos para confirmar dirección.",
+    "created_at": "2026-06-06T12:30:00Z",
+    "expires_at": "2026-06-06T14:30:00Z",
+    "delivered_count": 8
+  },
+  "users/_example_user_id": {
+    "email": "demo@smartalerts.ai",
+    "display_name": "Demo User",
+    "created_at": "2026-06-01T10:00:00Z",
+    "preferences": {
+      "sensitivity": "medium",
+      "enabled_types": ["price_surge", "price_dump", "volume_spike", "breakout"],
+      "min_score": 30,
+      "muted_coins": [],
+      "plan": "premium"
+    },
+    "fcm_tokens": [
+      {
+        "token": "EXAMPLE_FCM_TOKEN_ReplaceMe",
+        "platform": "web",
+        "device_id": "demo-device-001",
+        "created_at": "2026-06-01T10:00:00Z",
+        "last_seen": "2026-06-06T12:00:00Z"
+      }
+    ]
+  }
+}

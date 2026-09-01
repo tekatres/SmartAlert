@@ -1,0 +1,55 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers ----
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+    function isAdmin() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ---- users ----
+    // Each user can read/update their own profile. Writes from client are limited
+    // to non-sensitive fields; FCM tokens are managed by the Cloud Function.
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && (!('role' in request.resource.data) || request.resource.data.role == 'user');
+      allow update: if isOwner(uid)
+        && (!('role' in request.resource.data) || request.resource.data.role == resource.data.role);
+      allow delete: if false;
+    }
+
+    // ---- alerts ----
+    // Anyone signed in can read alerts. Only the server (admin SDK) can write.
+    match /alerts/{alertId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ---- trading signals ----
+    // Anyone signed in can read signals. Only the server (admin SDK) can write.
+    match /trading_signals/{signalId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ---- engine run logs (admin only) ----
+    match /engine_runs/{runId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
