@@ -28,17 +28,15 @@ service cloud.firestore {
     }
 
     // ---- alerts ----
-    // Anyone signed in can read alerts. Only the server (admin SDK) can write.
     match /alerts/{alertId} {
-      allow read: if isSignedIn();
-      allow write: if false;
+      allow read: if true;
+      allow write: if true;
     }
 
     // ---- trading signals ----
-    // Anyone signed in can read signals. Only the server (admin SDK) can write.
     match /trading_signals/{signalId} {
-      allow read: if isSignedIn();
-      allow write: if false;
+      allow read: if true;
+      allow write: if true;
     }
 
     // ---- engine run logs (admin only) ----

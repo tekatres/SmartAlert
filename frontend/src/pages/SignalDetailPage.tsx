@@ -6,12 +6,15 @@ import { clsx } from "clsx";
 import { db } from "@/services/firebase";
 import { TradingSignalDoc, SignalVote } from "@/types";
 import { Skeleton } from "@/components/Skeleton";
+import { PositionRiskCalculator } from "@/components/PositionRiskCalculator";
+import { TradingViewChart } from "@/components/TradingViewChart";
 
 export default function SignalDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [signal, setSignal] = useState<TradingSignalDoc | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -135,11 +138,30 @@ export default function SignalDetailPage() {
         </div>
       </header>
 
+      {/* Interactive Candlestick Chart Section */}
+      <section className="card p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-slate-200 flex items-center gap-2">
+            <span>📊</span> Gráfico en Tiempo Real (Binance Futures)
+          </h2>
+          <span className="text-xs text-slate-400 font-mono">Pau/Velas 1 hora</span>
+        </div>
+        <TradingViewChart symbol={signal.symbol} height={420} interval="60" />
+      </section>
+
       {/* Risk Management Panel */}
-      <section className="card p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Gestión de Riesgo
-        </h2>
+      <section className="card p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Gestión de Riesgo & Niveles
+          </h2>
+          <button
+            onClick={() => setShowCalculator(true)}
+            className="flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+          >
+            🧮 Abrir Calculadora de Riesgo
+          </button>
+        </div>
         <PriceLevel signal={signal} />
         <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <RiskRow label="Precio de entrada" value={formatPrice(signal.entry_price)} />
@@ -167,6 +189,31 @@ export default function SignalDetailPage() {
             value={`${(signal.funding_rate * 100).toFixed(4)}%`}
             tone={signal.funding_rate < 0 ? "text-emerald-400" : "text-rose-400"}
           />
+        </div>
+      </section>
+
+      {/* Pre-Trade Checklist */}
+      <section className="card border border-amber-500/20 bg-amber-500/5 p-5 space-y-3">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-amber-300 flex items-center gap-2">
+          <span>📋</span> Checklist Pre-Trade (Antes de enviar la orden)
+        </h2>
+        <div className="space-y-2 text-xs text-slate-300">
+          <label className="flex items-center gap-2 cursor-pointer hover:text-slate-100">
+            <input type="checkbox" className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500" />
+            <span>Confirmar que la vela del marco temporal principal (15m o 1h) ha cerrado.</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer hover:text-slate-100">
+            <input type="checkbox" className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500" />
+            <span>Configurar el tipo de margen como <strong>Aislado (Isolated)</strong> en el exchange.</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer hover:text-slate-100">
+            <input type="checkbox" className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500" />
+            <span>Calcular y no arriesgar más del 2% de la cuenta en esta operación.</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer hover:text-slate-100">
+            <input type="checkbox" className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500" />
+            <span>Ingresar las órdenes de Stop Loss (${formatPrice(signal.stop_loss)}) y Take Profit (${formatPrice(signal.take_profit_1)}) junto con la orden de entrada.</span>
+          </label>
         </div>
       </section>
 
@@ -234,6 +281,12 @@ export default function SignalDetailPage() {
           </li>
         </ol>
       </section>
+
+      <PositionRiskCalculator
+        signal={signal}
+        isOpen={showCalculator}
+        onClose={() => setShowCalculator(false)}
+      />
     </div>
   );
 }

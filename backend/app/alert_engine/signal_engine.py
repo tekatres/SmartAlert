@@ -30,12 +30,13 @@ logger = get_logger(__name__)
 
 # --- Configuration ----------------------------------------------------------
 
-MIN_CONFLUENCE = 7          # minimum votes needed out of 12
-MIN_RISK_REWARD = 1.5       # minimum R:R to emit a signal
+MIN_CONFLUENCE = 8          # minimum votes needed out of 12 (institutional high-conviction)
+MIN_RISK_REWARD = 1.8       # minimum R:R to emit a signal (positive expected value)
 MIN_ADX = 20                # market must be trending
+MIN_VOLUME_RATIO = 1.4      # minimum volume ratio vs 20-period average
 ATR_SL_MULTIPLIER = 1.5     # stop-loss = entry ± ATR * 1.5
-ATR_TP1_MULTIPLIER = 2.0    # take-profit 1 = entry ± ATR * 2.0 (50% close)
-ATR_TP2_MULTIPLIER = 3.5    # take-profit 2 = entry ± ATR * 3.5 (100% close)
+ATR_TP1_MULTIPLIER = 2.2    # take-profit 1 = entry ± ATR * 2.2 (50% close)
+ATR_TP2_MULTIPLIER = 3.8    # take-profit 2 = entry ± ATR * 3.8 (100% close)
 MAX_LEVERAGE = 20
 MIN_LEVERAGE = 1
 SIGNAL_EXPIRY_HOURS = 4     # signals older than 4h should be re-evaluated
