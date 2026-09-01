@@ -193,7 +193,7 @@ export function PaperTradingModal({ signal, isOpen, onClose }: Props) {
                     <span className="text-slate-500">{t.status}</span>
                   </div>
                   <span className={clsx("font-bold", t.pnlUsd >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                    {t.pnlUsd >= 0 ? "+" : ""}${t.pnlUsd.toFixed(2)} USD ({t.pnlPct >= 0 ? "+" : ""}{t.pnlPct.toFixed(1)}%)
+                    {t.pnlUsd >= 0 ? "+" : ""}${t.pnlUsd.toFixed(2)} USD ({t.roePct >= 0 ? "+" : ""}{t.roePct.toFixed(1)}%)
                   </span>
                 </div>
               ))}

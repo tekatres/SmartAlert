@@ -18,11 +18,12 @@ import { scanLiveMarket } from "@/services/liveScanner";
 
 import { ConfluenceHeatmap } from "@/components/ConfluenceHeatmap";
 import { PaperTradingModal } from "@/components/PaperTradingModal";
+import { PaperTradingPanel } from "@/components/PaperTradingPanel";
 import { fetchMarketSentiment, MarketSentimentData } from "@/services/marketSentiment";
 
 // Auto-scan interval: 4 hours in milliseconds
 const AUTO_SCAN_INTERVAL_MS = 4 * 60 * 60 * 1000;
-const LAST_SCAN_KEY = "smartalert_last_scan";
+const LAST_SCAN_KEY = "smartalert_last_scan_ts"; // ISO timestamp string
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -32,11 +33,17 @@ export default function DashboardPage() {
   const { filtered, loaded } = useAlerts(100);
   const { stats } = useConversionStats(30);
   const { signals } = useSignals(20);
-  const [viewMode, setViewMode] = useState<"list" | "split" | "compact" | "heatmap">("list");
+  const [viewMode, setViewMode] = useState<"list" | "sim" | "split" | "compact" | "heatmap">("list");
   const [autoScanStatus, setAutoScanStatus] = useState<"idle" | "scanning" | "done">("idle");
-  const [lastScanTime, setLastScanTime] = useState<string | null>(
-    localStorage.getItem(LAST_SCAN_KEY)
-  );
+  const [lastScanTime, setLastScanTime] = useState<string | null>(() => {
+    const ts = localStorage.getItem(LAST_SCAN_KEY);
+    if (!ts) return null;
+    try {
+      return new Date(ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    } catch {
+      return null;
+    }
+  });
   const [showPaperModal, setShowPaperModal] = useState(false);
   const [sentiment, setSentiment] = useState<MarketSentimentData | null>(null);
   const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -66,9 +73,10 @@ export default function DashboardPage() {
     setAutoScanStatus("scanning");
     try {
       await scanLiveMarket(6);
-      const now = new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
-      localStorage.setItem(LAST_SCAN_KEY, now);
-      setLastScanTime(now);
+      const isoNow = new Date().toISOString();
+      localStorage.setItem(LAST_SCAN_KEY, isoNow);
+      const displayTime = new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+      setLastScanTime(displayTime);
     } catch {
       // Silent fail — user can retry manually via banner button
     } finally {
@@ -80,43 +88,30 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return;
 
-    // On load: scan if never scanned before, or if last scan > 4h ago
-    const lastScanStr = localStorage.getItem(LAST_SCAN_KEY);
-    const lastScanDate = lastScanStr ? localStorage.getItem(`${LAST_SCAN_KEY}_ts`) : null;
-    const shouldScan =
-      !lastScanDate ||
-      Date.now() - parseInt(lastScanDate, 10) > AUTO_SCAN_INTERVAL_MS;
+    // Read the single unified ISO timestamp for the last scan
+    const lastScanIso = localStorage.getItem(LAST_SCAN_KEY);
+    const lastScanMs = lastScanIso ? new Date(lastScanIso).getTime() : 0;
+    const elapsed = Date.now() - lastScanMs;
+    const shouldScan = !lastScanMs || elapsed > AUTO_SCAN_INTERVAL_MS;
 
     if (shouldScan) {
       // Small delay so Firestore subscription is ready first
-      const initialTimer = setTimeout(() => {
-        localStorage.setItem(`${LAST_SCAN_KEY}_ts`, String(Date.now()));
-        runAutoScan();
-      }, 1500);
+      const initialTimer = setTimeout(() => runAutoScan(), 1500);
 
       // Schedule recurring scans every 4 hours
-      scanTimerRef.current = setInterval(() => {
-        localStorage.setItem(`${LAST_SCAN_KEY}_ts`, String(Date.now()));
-        runAutoScan();
-      }, AUTO_SCAN_INTERVAL_MS);
+      scanTimerRef.current = setInterval(() => runAutoScan(), AUTO_SCAN_INTERVAL_MS);
 
       return () => {
         clearTimeout(initialTimer);
         if (scanTimerRef.current) clearInterval(scanTimerRef.current);
       };
     } else {
-      // Already scanned recently, just schedule next one
-      const elapsed = Date.now() - parseInt(lastScanDate!, 10);
+      // Already scanned recently — schedule the next one at the right time
       const nextScanIn = AUTO_SCAN_INTERVAL_MS - elapsed;
 
       const nextTimer = setTimeout(() => {
-        localStorage.setItem(`${LAST_SCAN_KEY}_ts`, String(Date.now()));
         runAutoScan();
-        // Then recurring
-        scanTimerRef.current = setInterval(() => {
-          localStorage.setItem(`${LAST_SCAN_KEY}_ts`, String(Date.now()));
-          runAutoScan();
-        }, AUTO_SCAN_INTERVAL_MS);
+        scanTimerRef.current = setInterval(() => runAutoScan(), AUTO_SCAN_INTERVAL_MS);
       }, nextScanIn);
 
       return () => {
@@ -167,8 +162,14 @@ export default function DashboardPage() {
               </span>
             )}
             {autoScanStatus === "idle" && lastScanTime && (
+              <span className="flex items-center gap-1 rounded-full bg-slate-800/80 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-slate-400">
+                🕐 Último escaneo: <strong className="text-slate-300">{lastScanTime}</strong>
+                &nbsp;· Próximo en ~4h
+              </span>
+            )}
+            {autoScanStatus === "idle" && !lastScanTime && (
               <span className="text-[10px] text-slate-500 font-mono">
-                🕐 Último escaneo: {lastScanTime} · Próximo en ~4h
+                Sin escaneos previos · Iniciando en breve...
               </span>
             )}
           </div>
@@ -194,6 +195,17 @@ export default function DashboardPage() {
               )}
             >
               📋 Lista
+            </button>
+            <button
+              onClick={() => setViewMode("sim")}
+              className={clsx(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                viewMode === "sim"
+                  ? "bg-emerald-500 text-slate-950 shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              🎮 Panel Simulador + Chart
             </button>
             <button
               onClick={() => setViewMode("heatmap")}
@@ -268,7 +280,9 @@ export default function DashboardPage() {
       <DailyOpportunityBanner signals={signals} />
 
       {/* ---- VIEWS ---- */}
-      {viewMode === "heatmap" ? (
+      {viewMode === "sim" ? (
+        <PaperTradingPanel signals={signals} />
+      ) : viewMode === "heatmap" ? (
         <ConfluenceHeatmap signals={signals} />
       ) : viewMode === "split" ? (
         <MultiChartSplitView signals={signals} />
