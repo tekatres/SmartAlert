@@ -410,16 +410,18 @@ export function BinanceFuturesSimulator({ signals }: { signals: TradingSignalDoc
                       </td>
                       <td className="py-2.5 text-slate-200">${t.positionUsd.toFixed(2)}</td>
                       <td className="py-2.5 text-slate-300">${t.entryPrice.toFixed(2)}</td>
-                      <td className="py-2.5 text-amber-300 font-bold">
-                        ${livePrice.toFixed(2)}
-                        <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <td className="py-2.5 text-amber-300 font-bold font-mono">
+                        ${livePrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                        <span className="ml-1 inline-flex items-center gap-1 rounded bg-emerald-500/20 px-1 py-0.2 text-[9px] text-emerald-300 font-sans border border-emerald-500/30">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" /> WS LIVE
+                        </span>
                       </td>
                       <td className="py-2.5 text-rose-400">${t.liqPrice}</td>
                       <td className="py-2.5">
-                        <div className={clsx("font-black text-sm leading-tight", isProfit ? "text-emerald-400" : "text-rose-400")}>
+                        <div className={clsx("font-black text-sm leading-tight font-mono transition-all duration-100", isProfit ? "text-emerald-400" : "text-rose-400")}>
                           {isProfit ? "+" : ""}{pnlUsd.toFixed(2)} USDT
                         </div>
-                        <div className={clsx("text-[10px] font-bold", isProfit ? "text-emerald-300" : "text-rose-300")}>
+                        <div className={clsx("text-[10px] font-bold font-mono", isProfit ? "text-emerald-300" : "text-rose-300")}>
                           ROE: {isProfit ? "+" : ""}{roePct.toFixed(2)}%
                         </div>
                       </td>
