@@ -9,6 +9,9 @@ import { Skeleton } from "@/components/Skeleton";
 import { PositionRiskCalculator } from "@/components/PositionRiskCalculator";
 import { TradingViewChart } from "@/components/TradingViewChart";
 import { SignalOutcomeBadge } from "@/components/SignalOutcomeBadge";
+import { SignalDecisionGuide } from "@/components/SignalDecisionGuide";
+import { ExecutiveSummaryCard } from "@/components/ExecutiveSummaryCard";
+import { fetchMarketSentiment } from "@/services/marketSentiment";
 import { useSignalSetupStats } from "@/hooks/useSignalStats";
 
 export default function SignalDetailPage() {
@@ -17,6 +20,13 @@ export default function SignalDetailPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
+  const [sentimentValue, setSentimentValue] = useState<number>(50);
+
+  const { stats: setupStats, winrate } = useSignalSetupStats(signal?.signal_type || "");
+
+  useEffect(() => {
+    fetchMarketSentiment().then((s) => setSentimentValue(s.fearAndGreedValue));
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -73,8 +83,6 @@ export default function SignalDetailPage() {
   const shortVotes = signal.votes.filter((v) => v.vote === "SHORT");
   const neutralVotes = signal.votes.filter((v) => v.vote === "NEUTRAL");
 
-  const { stats: setupStats, winrate } = useSignalSetupStats(signal.signal_type);
-
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
@@ -82,6 +90,9 @@ export default function SignalDetailPage() {
           ← Volver al dashboard
         </Link>
       </div>
+
+      {/* EXECUTIVE SUMMARY AT VERY TOP */}
+      <ExecutiveSummaryCard signal={signal} />
 
       {/* Header */}
       <header className={clsx(
@@ -141,6 +152,22 @@ export default function SignalDetailPage() {
           </p>
         </div>
       </header>
+
+      {/* ── DECISION GUIDE ── */}
+      <section className="card p-5 space-y-4">
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+          <span className="text-lg">🧠</span>
+          <div>
+            <h2 className="text-sm font-black uppercase tracking-wide text-slate-100">
+              Guía de Decisión — ¿Entro o No?
+            </h2>
+            <p className="text-xs text-slate-400">
+              Análisis automático de 5 condiciones para ayudarte a decidir si entrar, cuándo salir y con qué temporalidad.
+            </p>
+          </div>
+        </div>
+        <SignalDecisionGuide signal={signal} sentimentValue={sentimentValue} />
+      </section>
 
       {/* Interactive Candlestick Chart Section */}
       <section className="card p-5 space-y-3">
