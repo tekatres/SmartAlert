@@ -8,6 +8,8 @@ import { TradingSignalDoc, SignalVote } from "@/types";
 import { Skeleton } from "@/components/Skeleton";
 import { PositionRiskCalculator } from "@/components/PositionRiskCalculator";
 import { TradingViewChart } from "@/components/TradingViewChart";
+import { SignalOutcomeBadge } from "@/components/SignalOutcomeBadge";
+import { useSignalSetupStats } from "@/hooks/useSignalStats";
 
 export default function SignalDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -70,6 +72,8 @@ export default function SignalDetailPage() {
   const longVotes = signal.votes.filter((v) => v.vote === "LONG");
   const shortVotes = signal.votes.filter((v) => v.vote === "SHORT");
   const neutralVotes = signal.votes.filter((v) => v.vote === "NEUTRAL");
+
+  const { stats: setupStats, winrate } = useSignalSetupStats(signal.signal_type);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -192,6 +196,98 @@ export default function SignalDetailPage() {
         </div>
       </section>
 
+      {/* Signal outcome (filled by scoreOutcomeJob) */}
+      <section className="card p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Resultado de la señal
+          </h2>
+          <SignalOutcomeBadge outcome={signal.outcome} />
+        </div>
+
+        {signal.outcome?.result ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <RiskRow
+                label="Nivel alcanzado"
+                value={signal.outcome.hit_level || "Ninguno"}
+              />
+              <RiskRow
+                label="Beneficio 1h"
+                value={boolLabel(signal.outcome.profitable_1h)}
+                tone={toneFor(signal.outcome.profitable_1h)}
+              />
+              <RiskRow
+                label="Beneficio 4h"
+                value={boolLabel(signal.outcome.profitable_4h)}
+                tone={toneFor(signal.outcome.profitable_4h)}
+              />
+              <RiskRow
+                label="Precio a 1h"
+                value={
+                  signal.outcome.price_1h
+                    ? formatPrice(signal.outcome.price_1h)
+                    : "—"
+                }
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <RiskRow
+                label="Máx. favorable"
+                value={`${signal.outcome.max_favorable_excursion_pct?.toFixed(2) ?? "—"}%`}
+                tone="text-emerald-400"
+              />
+              <RiskRow
+                label="Máx. adverso"
+                value={`${signal.outcome.max_adverse_excursion_pct?.toFixed(2) ?? "—"}%`}
+                tone="text-rose-400"
+              />
+              <RiskRow
+                label="Evaluado"
+                value={formatTimeShort(signal.outcome.checked_at)}
+              />
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">
+            Aún no evaluada. El job de outcomes la puntuará en ~1h (WIN si
+            alcanza TP1 antes que SL).
+          </p>
+        )}
+
+        {/* Win-rate histórico del setup */}
+        <div className="border-t border-white/5 pt-4">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-400">
+              Win-rate histórico del setup{" "}
+              <span className="font-mono text-slate-300">{signal.signal_type}</span>
+            </span>
+            {setupStats && (
+              <span className="font-mono font-semibold text-slate-200">
+                {winrate !== null ? `${(winrate * 100).toFixed(0)}%` : "—"} ·{" "}
+                {setupStats.wins}W/{setupStats.losses}L
+              </span>
+            )}
+          </div>
+          {setupStats && winrate !== null && (
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/5">
+              <div
+                className={clsx(
+                  "h-full rounded-full transition-all",
+                  winrate >= 0.5 ? "bg-emerald-500" : "bg-rose-500"
+                )}
+                style={{ width: `${Math.min(100, winrate * 100)}%` }}
+              />
+            </div>
+          )}
+          {!setupStats && (
+            <p className="mt-2 text-xs text-slate-600">
+              Sin historial todavía — necesitamos ≥1 outcome evaluado.
+            </p>
+          )}
+        </div>
+      </section>
+
       {/* Pre-Trade Checklist */}
       <section className="card border border-amber-500/20 bg-amber-500/5 p-5 space-y-3">
         <h2 className="text-sm font-bold uppercase tracking-wide text-amber-300 flex items-center gap-2">
@@ -298,6 +394,24 @@ function formatPrice(p: number) {
   return `$${p.toFixed(6)}`;
 }
 
+function boolLabel(v?: boolean | null) {
+  if (v === null || v === undefined) return "—";
+  return v ? "Sí" : "No";
+}
+
+function toneFor(v?: boolean | null) {
+  if (v === null || v === undefined) return undefined;
+  return v ? "text-emerald-400" : "text-rose-400";
+}
+
+function formatTimeShort(ts?: string | { seconds: number; nanoseconds: number } | null) {
+  if (!ts) return "—";
+  const date =
+    typeof ts === "string" ? new Date(ts) : new Date(ts.seconds * 1000);
+  if (Number.isNaN(date.getTime())) return "—";
+  return format(date, "HH:mm dd/MM");
+}
+
 function RiskRow({
   label,
   value,
@@ -346,16 +460,14 @@ function VoteRow({ vote }: { vote: SignalVote }) {
 }
 
 function BiasCard({ label, bias }: { label: string; bias: string }) {
-  const color =
-    bias === "LONG"
-      ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-300"
-      : bias === "SHORT"
-      ? "border-rose-500/25 bg-rose-500/5 text-rose-300"
-      : "border-white/5 bg-white/[0.02] text-slate-400";
+  const isLong = bias.includes("LONG");
+  const color = isLong
+    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+    : "border-rose-500/30 bg-rose-500/10 text-rose-300";
   return (
-    <div className={clsx("rounded-lg border p-3 text-center", color)}>
-      <p className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</p>
-      <p className="mt-1 font-semibold">{bias}</p>
+    <div className={clsx("rounded-xl border p-3 text-center transition-all", color)}>
+      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{label}</p>
+      <p className="mt-1 text-sm font-black font-mono tracking-tight">{bias}</p>
     </div>
   );
 }

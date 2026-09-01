@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     internal_api_key: str = "change-me"
     cors_origins: str = "http://localhost:5173"
 
+    # No-Cloud-Functions mode: the FastAPI process persists + pushes directly
+    # to Firestore/FCM using a Firebase service account (free).
+    firebase_credentials: str = ""   # path to service-account JSON (or GOOGLE_APPLICATION_CREDENTIALS)
+    firebase_project_id: str = ""
+    signal_scan_interval_s: int = 300      # generate alerts+signals every N s
+    outcome_scan_interval_s: int = 1800    # evaluate signal outcomes every N s
+
     @property
     def coin_list(self) -> List[str]:
         return [c.strip() for c in self.coins.split(",") if c.strip()]

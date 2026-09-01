@@ -228,9 +228,19 @@ export function PositionRiskCalculator({ signal, isOpen, onClose }: Props) {
 
         {/* Calculated Results Box */}
         <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            📊 Resultados de Gestión de Riesgo
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              📊 Resultados de Gestión de Riesgo (Dimensionamiento por Volatilidad ATR)
+            </h3>
+            {signal?.atr && (
+              <span className="rounded bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-mono font-bold text-emerald-300">
+                ATR (14, 1h): ${signal.atr}
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-400 leading-tight">
+            💡 El tamaño de tu posición se calcula automáticamente según la volatilidad del mercado (ATR 1.5x SL), asegurando que tu riesgo financiero máximo no supere el <strong>{riskPct}% (${maxRiskUsd.toFixed(2)} USD)</strong> sin importar la volatilidad actual.
+          </p>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg bg-slate-900/90 p-2.5 border border-slate-800">

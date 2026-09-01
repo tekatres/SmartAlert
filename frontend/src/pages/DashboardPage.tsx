@@ -16,6 +16,10 @@ import { useConversionStats } from "@/hooks/useConversionStats";
 import { useSignals } from "@/hooks/useSignals";
 import { scanLiveMarket } from "@/services/liveScanner";
 
+import { ConfluenceHeatmap } from "@/components/ConfluenceHeatmap";
+import { PaperTradingModal } from "@/components/PaperTradingModal";
+import { fetchMarketSentiment, MarketSentimentData } from "@/services/marketSentiment";
+
 // Auto-scan interval: 4 hours in milliseconds
 const AUTO_SCAN_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const LAST_SCAN_KEY = "smartalert_last_scan";
@@ -28,12 +32,18 @@ export default function DashboardPage() {
   const { filtered, loaded } = useAlerts(100);
   const { stats } = useConversionStats(30);
   const { signals } = useSignals(20);
-  const [viewMode, setViewMode] = useState<"list" | "split" | "compact">("list");
+  const [viewMode, setViewMode] = useState<"list" | "split" | "compact" | "heatmap">("list");
   const [autoScanStatus, setAutoScanStatus] = useState<"idle" | "scanning" | "done">("idle");
   const [lastScanTime, setLastScanTime] = useState<string | null>(
     localStorage.getItem(LAST_SCAN_KEY)
   );
+  const [showPaperModal, setShowPaperModal] = useState(false);
+  const [sentiment, setSentiment] = useState<MarketSentimentData | null>(null);
   const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    fetchMarketSentiment().then(setSentiment);
+  }, []);
 
   useEffect(() => {
     if (authReady && !user) navigate("/login", { replace: true });
@@ -164,49 +174,103 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* View mode toggle — 3 modes */}
-        <div className="flex items-center gap-1 rounded-xl bg-slate-900 p-1 border border-slate-800 self-start sm:self-auto">
+        {/* View mode toggle + Paper Trading button */}
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
           <button
-            onClick={() => setViewMode("list")}
-            className={clsx(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
-              viewMode === "list"
-                ? "bg-emerald-500 text-slate-950 shadow-md"
-                : "text-slate-400 hover:text-slate-200"
-            )}
+            onClick={() => setShowPaperModal(true)}
+            className="flex items-center gap-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3.5 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition-all shadow-md"
           >
-            📋 Lista
+            🎮 Simulador ($10,000)
           </button>
-          <button
-            onClick={() => setViewMode("compact")}
-            className={clsx(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
-              viewMode === "compact"
-                ? "bg-emerald-500 text-slate-950 shadow-md"
-                : "text-slate-400 hover:text-slate-200"
-            )}
-          >
-            ⚡ Compacto
-          </button>
-          <button
-            onClick={() => setViewMode("split")}
-            className={clsx(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
-              viewMode === "split"
-                ? "bg-emerald-500 text-slate-950 shadow-md"
-                : "text-slate-400 hover:text-slate-200"
-            )}
-          >
-            🖥️ Multi-Chart
-          </button>
+
+          <div className="flex items-center gap-1 rounded-xl bg-slate-900 p-1 border border-slate-800">
+            <button
+              onClick={() => setViewMode("list")}
+              className={clsx(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                viewMode === "list"
+                  ? "bg-emerald-500 text-slate-950 shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              📋 Lista
+            </button>
+            <button
+              onClick={() => setViewMode("heatmap")}
+              className={clsx(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                viewMode === "heatmap"
+                  ? "bg-emerald-500 text-slate-950 shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              🔥 Mapa de Calor
+            </button>
+            <button
+              onClick={() => setViewMode("compact")}
+              className={clsx(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                viewMode === "compact"
+                  ? "bg-emerald-500 text-slate-950 shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              ⚡ Compacto
+            </button>
+            <button
+              onClick={() => setViewMode("split")}
+              className={clsx(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                viewMode === "split"
+                  ? "bg-emerald-500 text-slate-950 shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              🖥️ Multi-Chart
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* ---- SENTIMENT & MACRO RISK BAR ---- */}
+      {sentiment && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-2.5 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-slate-400 uppercase tracking-wider text-[10px]">
+              Sentimiento Crypto:
+            </span>
+            <span className="rounded bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 font-mono font-bold text-amber-300">
+              {sentiment.fearAndGreedValue}/100 ({sentiment.fearAndGreedClassification})
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {sentiment.shortWarning && (
+              <span className="text-amber-400 font-medium">
+                ⚠️ Miedo Extremo: Squeezes bruscos posibles en SHORT.
+              </span>
+            )}
+            {sentiment.longWarning && (
+              <span className="text-amber-400 font-medium">
+                ⚠️ Codicia Extrema: Correcciones bruscas posibles en LONG.
+              </span>
+            )}
+            {!sentiment.shortWarning && !sentiment.longWarning && (
+              <span className="text-slate-400">
+                Mercado cuantitativo alineado · Actualizado {sentiment.updatedAt}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ---- DAILY BANNER ---- */}
       <DailyOpportunityBanner signals={signals} />
 
       {/* ---- VIEWS ---- */}
-      {viewMode === "split" ? (
+      {viewMode === "heatmap" ? (
+        <ConfluenceHeatmap signals={signals} />
+      ) : viewMode === "split" ? (
         <MultiChartSplitView signals={signals} />
       ) : viewMode === "compact" ? (
         <CompactSignalsView signals={signals} />
@@ -278,6 +342,11 @@ export default function DashboardPage() {
           )}
         </>
       )}
+
+      <PaperTradingModal
+        isOpen={showPaperModal}
+        onClose={() => setShowPaperModal(false)}
+      />
     </div>
   );
 }

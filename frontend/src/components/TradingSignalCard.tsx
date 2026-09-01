@@ -4,7 +4,9 @@ import { format } from "date-fns";
 import { clsx } from "clsx";
 import { TradingSignalDoc } from "@/types";
 import { PositionRiskCalculator } from "@/components/PositionRiskCalculator";
+import { PaperTradingModal } from "@/components/PaperTradingModal";
 import { TradingViewChart } from "@/components/TradingViewChart";
+import { SignalOutcomeBadge } from "@/components/SignalOutcomeBadge";
 
 function formatPrice(p: number) {
   if (p >= 1) return `$${p.toLocaleString("en-US", { maximumFractionDigits: 4 })}`;
@@ -38,13 +40,43 @@ function ConfluenceBar({ score, total }: { score: number; total: number }) {
 
 export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
   const [showCalculator, setShowCalculator] = useState(false);
+  const [showPaperModal, setShowPaperModal] = useState(false);
   const [showChart, setShowChart] = useState(false);
   const isLong = signal.direction === "LONG";
   const dirColor = isLong
     ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
     : "text-rose-300 bg-rose-500/10 border-rose-500/20";
   const dirEmoji = isLong ? "🟢" : "🔴";
-  const isHighConfluence = signal.confluence_score >= 8;
+  const hasConflict = (signal as any).timeframe_conflict;
+  const score = signal.confluence_score;
+
+  // 4-tier confluence classification
+  let confluenceBadge = null;
+  if (score >= 9 && !hasConflict) {
+    confluenceBadge = (
+      <span className="rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
+        🟢 ALTA CONFLUENCIA (Señal Fuerte)
+      </span>
+    );
+  } else if (score >= 7) {
+    confluenceBadge = (
+      <span className="rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+        {hasConflict ? "⚠️ CONFLUENCIA MEDIA (Conflicto 15m/4h)" : "🟡 CONFLUENCIA MEDIA (Esperar Confirmación)"}
+      </span>
+    );
+  } else if (score >= 5) {
+    confluenceBadge = (
+      <span className="rounded-md bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 text-[10px] font-bold text-orange-400">
+        🟠 SEÑAL DÉBIL (Precaución / No Entrar)
+      </span>
+    );
+  } else {
+    confluenceBadge = (
+      <span className="rounded-md bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 text-[10px] font-bold text-rose-400">
+        🔴 DESCARTAR (&lt;5/12)
+      </span>
+    );
+  }
 
   const krakenSymbol = (signal as any).kraken_symbol || `PF_${signal.symbol === 'BTC' ? 'XBT' : signal.symbol}USD`;
   const krakenUrl = `https://futures.kraken.com/trade/${krakenSymbol}`;
@@ -70,18 +102,15 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
                 {signal.symbol}
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className={clsx("badge border text-xs font-bold px-2 py-0.5", dirColor)}>
                     {dirEmoji} {signal.direction}
                   </span>
                   <span className="rounded-md bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 text-xs font-bold text-amber-300">
                     {signal.leverage}x
                   </span>
-                  {isHighConfluence && (
-                    <span className="rounded-md bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">
-                      ⚡ ALTA CONFLUENCIA
-                    </span>
-                  )}
+                  {confluenceBadge}
+                  <SignalOutcomeBadge outcome={signal.outcome} />
                 </div>
                 <p className="mt-1 text-xs text-slate-400">
                   {signal.name} · {formatTime(signal.created_at)}
@@ -151,8 +180,16 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
               </button>
 
               <button
+                onClick={() => setShowPaperModal(true)}
+                className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+                title="Ejecutar en modo simulador sin riesgo"
+              >
+                🎮 Simulador
+              </button>
+
+              <button
                 onClick={() => setShowCalculator(true)}
-                className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+                className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors"
                 title="Calcular riesgo para tu capital"
               >
                 🧮 Riesgo
@@ -184,6 +221,12 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
         isOpen={showCalculator}
         onClose={() => setShowCalculator(false)}
       />
+
+      <PaperTradingModal
+        signal={signal}
+        isOpen={showPaperModal}
+        onClose={() => setShowPaperModal(false)}
+      />
     </>
   );
 }
@@ -210,15 +253,14 @@ function Stat({
 }
 
 function BiasTag({ label, bias }: { label: string; bias: string }) {
-  const color =
-    bias === "LONG"
-      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-      : bias === "SHORT"
-      ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-      : "bg-white/5 text-slate-500 border border-white/5";
+  const isLong = bias.includes("LONG");
+  const color = isLong
+    ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
+    : "bg-rose-500/10 text-rose-300 border-rose-500/25";
   return (
-    <span className={clsx("rounded px-2 py-0.5 text-xs font-medium", color)}>
-      {label}: {bias}
+    <span className={clsx("rounded-md border px-2 py-0.5 text-xs font-mono font-bold inline-flex items-center gap-1", color)}>
+      <span className="text-[10px] text-slate-400 font-sans uppercase font-bold">{label}:</span>
+      <span>{bias}</span>
     </span>
   );
 }

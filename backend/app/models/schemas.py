@@ -120,6 +120,20 @@ class AlertGenerationRequest(BaseModel):
     sensitivity: Literal["low", "medium", "high"] = "medium"
     use_ai: bool = True
     tier: UserTier = UserTier.FREE  # affects which fields are populated
+    signal_thresholds: Optional["SignalThresholdConfig"] = None  # engine tuning
+
+
+class SignalThresholdConfig(BaseModel):
+    """Engine thresholds for the trading signal engine (tunable from the UI).
+
+    Lowering them emits more signals; raising them makes signals stricter.
+    """
+    min_confluence: int = Field(default=8, ge=1, le=15)      # weighted votes (of 15)
+    min_risk_reward: float = Field(default=1.8, ge=1.0, le=5.0)
+    min_adx: float = Field(default=20.0, ge=0.0, le=50.0)
+
+
+AlertGenerationRequest.model_rebuild()
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +153,40 @@ class SignalVote(BaseModel):
     weight: int
     value: float
     explanation: str
+
+
+class SignalOutcome(BaseModel):
+    """Tracks what actually happened after a trading signal fired.
+
+    Filled in by the outcome tracker (scoreOutcomeJob) and used to build
+    the win-rate stats per setup that feed the closed-loop learning.
+    """
+    result: str                       # "WIN" | "LOSS" | "PENDING"
+    hit_level: str = "NONE"           # "TP1" | "TP2" | "SL" | "NONE"
+    profitable_1h: Optional[bool] = None
+    profitable_4h: Optional[bool] = None
+    price_1h: Optional[float] = None
+    price_4h: Optional[float] = None
+    max_favorable_excursion_pct: Optional[float] = None
+    max_adverse_excursion_pct: Optional[float] = None
+    checked_at: Optional[datetime] = None
+
+
+class SignalEvaluationRequest(BaseModel):
+    """Payload to re-evaluate a past trading signal (sent by the outcome tracker)."""
+    signal_id: str
+    symbol: str                # e.g. "BTCUSDT"
+    direction: SignalDirection
+    entry_price: float
+    stop_loss: float
+    take_profit_1: float
+    take_profit_2: float
+    created_at: datetime
+
+
+class SignalEvaluationResponse(BaseModel):
+    signal_id: str
+    outcome: SignalOutcome
 
 
 class TradingSignalAlert(BaseModel):
@@ -179,6 +227,7 @@ class TradingSignalAlert(BaseModel):
     created_at: datetime
     expires_at: Optional[datetime] = None
     min_tier: UserTier = UserTier.FREE
+    outcome: Optional[SignalOutcome] = None
 
 
 class AlertGenerationResponse(BaseModel):

@@ -4,7 +4,7 @@ import {
   obtainFcmToken,
   requestNotificationPermission,
 } from "@/services/fcm";
-import { registerFcmTokenFn } from "@/services/alerts";
+import { upsertFcmTokenLocal } from "@/services/alerts";
 import { useAppStore } from "@/store/useAppStore";
 
 export function usePushNotifications() {
@@ -16,7 +16,9 @@ export function usePushNotifications() {
     const token = await obtainFcmToken();
     if (token && user) {
       try {
-        await registerFcmTokenFn({
+        // Direct Firestore write (works without Cloud Functions). The backend
+        // reads users/{uid}/fcm_tokens to send pushes.
+        await upsertFcmTokenLocal(user.uid, {
           token,
           platform: "web",
           device_id: navigator.userAgent,

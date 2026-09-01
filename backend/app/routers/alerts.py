@@ -6,12 +6,18 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, status
 
+import httpx
+
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
 from app.models.schemas import (
     Alert,
     AlertGenerationRequest,
     AlertGenerationResponse,
+    SignalEvaluationRequest,
+    SignalEvaluationResponse,
+    SignalOutcome,
+    SignalThresholdConfig,
     TradingSignalAlert,
     UserTier,
 )
@@ -21,6 +27,21 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 signals_router = APIRouter(prefix="/signals", tags=["signals"])
+
+
+def _to_signal_thresholds(
+    cfg: Optional["SignalThresholdConfig"],
+) -> Optional["SignalThresholds"]:
+    """Convert the API threshold config into the engine's dataclass (or None)."""
+    from app.alert_engine.signal_engine import SignalThresholds
+
+    if cfg is None:
+        return None
+    return SignalThresholds(
+        min_confluence=cfg.min_confluence,
+        min_risk_reward=cfg.min_risk_reward,
+        min_adx=cfg.min_adx,
+    )
 
 
 async def _verify_internal_key(
@@ -66,7 +87,10 @@ async def generate_alerts(
 
     # Run trading signal engine in parallel with alert generation
     orchestrator = request.app.state.signal_orchestrator
-    trading_signals: list[TradingSignalAlert] = await orchestrator.generate_signals(coins)
+    thresholds = _to_signal_thresholds(payload.signal_thresholds)
+    trading_signals: list[TradingSignalAlert] = await orchestrator.generate_signals(
+        coins, thresholds=thresholds
+    )
 
     return AlertGenerationResponse(
         generated_at=datetime.now(timezone.utc),
@@ -136,3 +160,42 @@ async def recent_signals(
     """Generate and return fresh trading signals for all configured coins."""
     orchestrator = request.app.state.signal_orchestrator
     return await orchestrator.generate_signals(settings.coin_list)
+
+
+@signals_router.post("/evaluate", response_model=SignalEvaluationResponse)
+async def evaluate_signal(
+    payload: SignalEvaluationRequest,
+) -> SignalEvaluationResponse:
+    """Re-evaluate a past trading signal against post-creation klines.
+
+    Used by the scoreOutcomeJob Cloud Function. Returns whether TP1 was hit
+    before SL (WIN/LOSS/PENDING) plus 1h/4h profitability and excursions.
+    """
+    from app.alert_engine.signal_outcome import evaluate_signal_outcome
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        outcome = await evaluate_signal_outcome(
+            client=client,
+            symbol=payload.symbol,
+            direction=payload.direction.value,
+            entry_price=payload.entry_price,
+            stop_loss=payload.stop_loss,
+            take_profit_1=payload.take_profit_1,
+            take_profit_2=payload.take_profit_2,
+            created_at=payload.created_at,
+        )
+
+    return SignalEvaluationResponse(
+        signal_id=payload.signal_id,
+        outcome=SignalOutcome(
+            result=outcome.result,
+            hit_level=outcome.hit_level,
+            profitable_1h=outcome.profitable_1h,
+            profitable_4h=outcome.profitable_4h,
+            price_1h=outcome.price_1h,
+            price_4h=outcome.price_4h,
+            max_favorable_excursion_pct=outcome.max_favorable_excursion_pct,
+            max_adverse_excursion_pct=outcome.max_adverse_excursion_pct,
+            checked_at=outcome.evaluated_at,
+        ),
+    )

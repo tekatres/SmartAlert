@@ -26,9 +26,11 @@ export function DailyOpportunityBanner({ signals }: { signals: TradingSignalDoc[
     }
   };
 
-  // Find top signal by highest confluence score
+  // Find top signal by highest confluence score (must be Alta Confluencia >= 9 and no timeframe conflict)
   const topSignal = signals.length > 0
-    ? [...signals].sort((a, b) => b.confluence_score - a.confluence_score)[0]
+    ? [...signals]
+        .filter((s) => s.confluence_score >= 9 && !(s as any).timeframe_conflict)
+        .sort((a, b) => b.confluence_score - a.confluence_score)[0]
     : null;
 
   if (!topSignal) {

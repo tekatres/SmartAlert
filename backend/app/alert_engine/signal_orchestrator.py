@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from app.alert_engine.signal_engine import TradingSignal, analyze
+from app.alert_engine.signal_engine import (
+    SignalThresholds,
+    TradingSignal,
+    analyze,
+)
 from app.core.logging import get_logger
 from app.models.schemas import SignalVote, TradingSignalAlert, UserTier
 from app.services.binance_futures import MultiTimeframeKlines, fetch_multi_timeframe
@@ -43,10 +47,11 @@ class SignalOrchestrator:
     async def generate_signals(
         self,
         coin_ids: List[str],
+        thresholds: Optional[SignalThresholds] = None,
     ) -> List[TradingSignalAlert]:
         """Fetch multi-timeframe klines and return trading signals.
 
-        Only LONG/SHORT signals (confluence >= 7/12) are returned.
+        Only LONG/SHORT signals (confluence >= threshold) are returned.
         WAIT decisions are filtered out.
         """
         logger.info("SignalOrchestrator: fetching klines for %d coins", len(coin_ids))
@@ -64,7 +69,7 @@ class SignalOrchestrator:
                 coin_name = COIN_NAMES.get(coin_id, coin_id.title())
                 prev_oi = self._prev_oi.get(mtf.symbol)
 
-                signal = analyze(mtf, coin_name, previous_oi=prev_oi)
+                signal = analyze(mtf, coin_name, previous_oi=prev_oi, thresholds=thresholds)
 
                 # Update stored OI for next cycle
                 if mtf.open_interest:

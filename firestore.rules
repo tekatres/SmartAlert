@@ -39,6 +39,18 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // ---- signal stats (aggregated win rates, computed by Cloud Functions) ----
+    match /signal_stats/{statId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ---- engine thresholds (tunable from the UI, read by the cron) ----
+    match /engine_config/{configId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
     // ---- engine run logs (admin only) ----
     match /engine_runs/{runId} {
       allow read: if isAdmin();

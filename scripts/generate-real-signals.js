@@ -245,18 +245,13 @@ async function main() {
 
       const direction = longScore >= shortScore ? "LONG" : "SHORT";
       const winningScore = direction === "LONG" ? longScore : shortScore;
-      const confluenceScore = Math.min(12, Math.round((winningScore / 10.5) * 12));
+      const confluenceScore = Math.min(12, Math.max(5, Math.round((winningScore / 10.5) * 12)));
 
-      // STRICT GATE: Require at least 8/12 confluence
-      if (confluenceScore < 8) {
-        console.log(`  -- ${item.symbol}: WAIT (Confluencia ${confluenceScore}/12 < 8 mínima)`);
-        continue;
-      }
-
-      const leverage = Math.min(20, Math.max(2, Math.floor(10 / atrPct)));
-      const slPct = parseFloat((atrPct * 1.5).toFixed(2));
-      const tp1Pct = parseFloat((atrPct * 2.2).toFixed(2));
-      const tp2Pct = parseFloat((atrPct * 3.8).toFixed(2));
+      // Dynamic leverage capped by ATR volatility (Recommendation #3)
+      const leverage = Math.min(10, Math.max(3, Math.floor(6 / (atrPct || 1))));
+      const slPct = parseFloat((Math.max(1.2, atrPct * 1.5)).toFixed(2));
+      const tp1Pct = parseFloat((slPct * 1.6).toFixed(2));
+      const tp2Pct = parseFloat((slPct * 2.8).toFixed(2));
 
       const isLong = direction === "LONG";
       const stopLoss = isLong ? currentPrice * (1 - slPct / 100) : currentPrice * (1 + slPct / 100);
@@ -264,14 +259,64 @@ async function main() {
       const tp2 = isLong ? currentPrice * (1 + tp2Pct / 100) : currentPrice * (1 - tp2Pct / 100);
       const riskReward = parseFloat((tp1Pct / slPct).toFixed(2));
 
+      let score15mRaw = 5;
+      if (rsi15m < 42) score15mRaw += 3;
+      else if (rsi15m < 50) score15mRaw += 1.5;
+      else if (rsi15m > 58) score15mRaw -= 3;
+      else score15mRaw -= 1.5;
+
+      const dir15m = score15mRaw >= 5 ? "LONG" : "SHORT";
+      const rating15m = dir15m === "LONG" ? Math.min(10, Math.max(3, Math.round(score15mRaw))) : Math.min(10, Math.max(3, Math.round(10 - score15mRaw)));
+
+      let score1hRaw = 5;
+      if (currentPrice > ema9 && ema9 > ema21) score1hRaw += 2.5;
+      else if (currentPrice < ema9 && ema9 < ema21) score1hRaw -= 2.5;
+      if (macd1h > 0) score1hRaw += 1.5; else score1hRaw -= 1.5;
+
+      const dir1h = score1hRaw >= 5 ? "LONG" : "SHORT";
+      const rating1h = dir1h === "LONG" ? Math.min(10, Math.max(3, Math.round(score1hRaw))) : Math.min(10, Math.max(3, Math.round(10 - score1hRaw)));
+
+      let score4hRaw = 5;
+      if (currentPrice > ema50_4h) score4hRaw += 3.5; else score4hRaw -= 3.5;
+      if (rsi4h > 50) score4hRaw += 1.5; else score4hRaw -= 1.5;
+
+      const dir4h = score4hRaw >= 5 ? "LONG" : "SHORT";
+      const rating4h = dir4h === "LONG" ? Math.min(10, Math.max(3, Math.round(score4hRaw))) : Math.min(10, Math.max(3, Math.round(10 - score4hRaw)));
+
+      const bias_15m = `${dir15m} ${rating15m}/10`;
+      const bias_1h = `${dir1h} ${rating1h}/10`;
+      const bias_4h = `${dir4h} ${rating4h}/10`;
+
+      // ── MULTI-TIMEFRAME ALIGNMENT GUARD ─────────────────────────────────────
+      const opposes15mAnd4h = (direction === "SHORT" && dir15m === "LONG" && dir4h === "LONG") ||
+                              (direction === "LONG" && dir15m === "SHORT" && dir4h === "SHORT");
+
+      let effectiveConfluence = confluenceScore;
+      if (opposes15mAnd4h && effectiveConfluence >= 9) {
+        effectiveConfluence = 8; // Demote from High to Medium Confluence due to timeframe contradiction
+      }
+
+      let signalTypeLabel = "";
+      if (effectiveConfluence >= 9 && !opposes15mAnd4h) {
+        signalTypeLabel = `${direction} Alta Confluencia (9-12/12 — Señal Fuerte)`;
+      } else if (effectiveConfluence >= 7) {
+        signalTypeLabel = opposes15mAnd4h
+          ? `${direction} Confluencia Media (7-8/12 — Conflicto 15m/4h)`
+          : `${direction} Confluencia Media (7-8/12 — Esperar Confirmación)`;
+      } else if (effectiveConfluence >= 5) {
+        signalTypeLabel = `${direction} Señal Débil (5-6/12 — Precaución / No Entrar)`;
+      } else {
+        signalTypeLabel = `${direction} Descartar (<5/12 — Sin Confluencia)`;
+      }
+
       const signalDoc = {
         coin_id: item.coin_id,
         symbol: item.symbol,
         name: item.name,
         direction,
-        confluence_score: confluenceScore,
+        confluence_score: effectiveConfluence,
         confluence_total: 12,
-        confidence: parseFloat((confluenceScore / 12).toFixed(2)),
+        confidence: parseFloat((effectiveConfluence / 12).toFixed(2)),
         entry_price: parseFloat(currentPrice.toFixed(4)),
         leverage,
         stop_loss: parseFloat(stopLoss.toFixed(4)),
@@ -283,12 +328,13 @@ async function main() {
         tp1_pct: tp1Pct,
         tp2_pct: tp2Pct,
         votes,
-        bias_15m: rsi15m < 50 ? "SHORT" : "LONG",
-        bias_1h: rsi1h < 50 ? "SHORT" : "LONG",
-        bias_4h: bias4h,
+        timeframe_conflict: opposes15mAnd4h,
+        bias_15m,
+        bias_1h,
+        bias_4h,
         funding_rate: fundingRate,
         open_interest: 0,
-        signal_type: `${direction} Alta Confluencia Institucional`,
+        signal_type: signalTypeLabel,
         min_tier: "free",
         created_at: Timestamp.now(),
       };
@@ -307,11 +353,11 @@ async function main() {
         previous_price_usd: parseFloat(k1h[0].open.toFixed(4)),
         change_pct: changePct,
         volume_24h_usd: k1h.reduce((a, b) => a + b.volume * b.close, 0),
-        volume_ratio: 1.85,
+        volume_ratio: volumeRatio,
         score: Math.min(98, confluenceScore * 8 + 15),
         title: `${direction === "LONG" ? "🟢" : "🔴"} ${item.symbol} $${currentPrice.toFixed(2)} (${changePct >= 0 ? "+" : ""}${changePct}%)`,
-        summary: `Señal REAL en tiempo real para ${item.name}. Confluencia técnica de ${confluenceScore}/12.`,
-        explanation: `Análisis real de Binance Futures hoy: Precio a $${currentPrice.toFixed(2)}, RSI 15m (${rsi15m.toFixed(1)}), RSI 1h (${rsi1h.toFixed(1)}). Confluencia ${confluenceScore}/12. Entrada sugerida a precio de mercado.`,
+        summary: `Señal en tiempo real para ${item.name}. Confluencia técnica de ${confluenceScore}/12.`,
+        explanation: `Análisis de Binance Futures hoy: Precio a $${currentPrice.toFixed(2)}, RSI 15m (${rsi15m.toFixed(1)}), RSI 1h (${rsi1h.toFixed(1)}). Confluencia ${confluenceScore}/12.`,
         recommended_action: `Entrada ${direction} a $${currentPrice.toFixed(2)} con SL a $${stopLoss.toFixed(2)} (-${slPct}%).`,
         min_tier: "free",
         created_at: Timestamp.now(),

@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.routers import alerts_router, health_router, signals_router
 from app.services import get_provider
+from app.services.engine_loop import EngineLoop
 
 settings = get_settings()
 setup_logging(settings.log_level)
@@ -39,13 +40,21 @@ async def lifespan(app: FastAPI):
         ai_provider=ai_provider,
         outcome_tracker=outcome_tracker,
     )
+
+    # No-Cloud-Functions loop: persists + pushes from this process.
+    engine_loop = EngineLoop(settings, app.state.alert_engine, signal_orchestrator)
+    engine_loop.start()
+    app.state.engine_loop = engine_loop
+
     log.info(
-        "Alert engine ready. data=%s ai=%s coins=%d",
+        "Alert engine ready. data=%s ai=%s coins=%d loop=%s",
         data_provider.name,
         ai_provider.name,
         len(settings.coin_list),
+        engine_loop.available,
     )
     yield
+    await engine_loop.stop()
     log.info("Shutting down.")
 
 

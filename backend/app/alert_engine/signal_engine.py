@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Literal, Optional
 
 from app.alert_engine.indicators import (
+    ADXResult,
     AllIndicators,
     compute_all,
 )
@@ -40,6 +41,18 @@ ATR_TP2_MULTIPLIER = 3.8    # take-profit 2 = entry ± ATR * 3.8 (100% close)
 MAX_LEVERAGE = 20
 MIN_LEVERAGE = 1
 SIGNAL_EXPIRY_HOURS = 4     # signals older than 4h should be re-evaluated
+
+
+@dataclass(frozen=True)
+class SignalThresholds:
+    """Engine gates. All values are tunable from the UI (engine_config).
+
+    Lowering them emits more signals; raising them filters more out.
+    """
+    min_confluence: int = MIN_CONFLUENCE
+    min_risk_reward: float = MIN_RISK_REWARD
+    min_adx: float = MIN_ADX
+    min_volume_ratio: float = MIN_VOLUME_RATIO
 
 
 # --- Data structures --------------------------------------------------------
@@ -238,26 +251,25 @@ def _vote_stoch_rsi(ind: AllIndicators) -> VoteResult:
     return VoteResult("Stochastic RSI 15m", vote, 1, sr.k, expl)
 
 
-def _vote_adx(ind: AllIndicators) -> VoteResult:
-    """ADX trend filter — weight 2. Acts as gate: NEUTRAL if ADX < 20."""
-    a = ind.adx_1h
-    if a is None:
+def _vote_adx(adx_result: Optional[ADXResult], min_adx: float = MIN_ADX) -> VoteResult:
+    """ADX trend filter — weight 2. Acts as gate: NEUTRAL if ADX < threshold."""
+    if adx_result is None:
         return VoteResult("ADX 1h", "NEUTRAL", 2, 0.0, "ADX no disponible.")
 
-    if not a.has_trend:
+    if not adx_result.has_trend or adx_result.adx < min_adx:
         vote = "NEUTRAL"
-        expl = f"ADX={a.adx:.1f} < 20. Mercado lateral. Sin tendencia — señal descartada."
-    elif a.is_bullish_trend:
+        expl = f"ADX={adx_result.adx:.1f} < {min_adx:.0f}. Mercado lateral. Sin tendencia — señal descartada."
+    elif adx_result.is_bullish_trend:
         vote = "LONG"
-        expl = f"ADX={a.adx:.1f} con +DI={a.plus_di:.1f} > -DI={a.minus_di:.1f}. Tendencia alcista confirmada."
-    elif a.is_bearish_trend:
+        expl = f"ADX={adx_result.adx:.1f} con +DI={adx_result.plus_di:.1f} > -DI={adx_result.minus_di:.1f}. Tendencia alcista confirmada."
+    elif adx_result.is_bearish_trend:
         vote = "SHORT"
-        expl = f"ADX={a.adx:.1f} con -DI={a.minus_di:.1f} > +DI={a.plus_di:.1f}. Tendencia bajista confirmada."
+        expl = f"ADX={adx_result.adx:.1f} con -DI={adx_result.minus_di:.1f} > +DI={adx_result.plus_di:.1f}. Tendencia bajista confirmada."
     else:
         vote = "NEUTRAL"
-        expl = f"ADX={a.adx:.1f}. Tendencia sin dirección clara."
+        expl = f"ADX={adx_result.adx:.1f}. Tendencia sin dirección clara."
 
-    return VoteResult("ADX 1h", vote, 2, a.adx, expl)
+    return VoteResult("ADX 1h", vote, 2, adx_result.adx, expl)
 
 
 def _vote_obv(ind: AllIndicators) -> VoteResult:
@@ -452,64 +464,76 @@ def _label_signal(votes: List[VoteResult], direction: str) -> str:
     return f"{direction}_{label}" if label else direction
 
 
-# --- Main entry point -------------------------------------------------------
+# --- Bar analysis (threshold-independent) ----------------------------------
 
-def analyze(
+@dataclass
+class BarAnalysis:
+    """Raw per-bar analysis: votes, levels and score, BEFORE applying gates.
+
+    Threshold-independent so the backtester can compute it once per bar and
+    then grid-search over signal thresholds cheaply.
+    """
+    coin_id: str
+    symbol: str
+    direction: str
+    confluence_score: int
+    confluence_total: int
+    long_score: int
+    short_score: int
+    entry_price: float
+    stop_loss: float
+    take_profit_1: float
+    take_profit_2: float
+    risk_reward: float
+    atr: float
+    atr_pct: float
+    leverage: int
+    adx: float
+    adx_result: Optional[ADXResult]
+    votes: List[VoteResult] = field(default_factory=list)
+    bias_15m: str = "NEUTRAL"
+    bias_1h: str = "NEUTRAL"
+    bias_4h: str = "NEUTRAL"
+    funding_rate: float = 0.0
+    open_interest: float = 0.0
+
+
+def analyze_bar(
     mtf: MultiTimeframeKlines,
-    coin_name: str,
     previous_oi: Optional[float] = None,
-) -> Optional[TradingSignal]:
-    """Analyze a coin's multi-timeframe data and return a TradingSignal or None.
+) -> Optional[BarAnalysis]:
+    """Compute the full indicator/vote breakdown for a single bar snapshot.
 
-    Returns None when:
-    - Not enough data to compute indicators
-    - ADX < 20 (no trend — never trade a ranging market)
-    - Confluence < MIN_CONFLUENCE (7/12 weighted votes)
-    - Risk/Reward < MIN_RISK_REWARD (1.5)
+    Unlike `analyze`, this NEVER applies signal gates (ADX/confluence/RR),
+    so it can be reused for backtesting and grid search.
     """
     if not mtf.candles_1h or len(mtf.candles_1h) < 50:
-        logger.debug("analyze %s: insufficient 1h candles (%d)", mtf.symbol, len(mtf.candles_1h))
         return None
 
-    # Compute all indicators
     ind = compute_all(mtf.candles_15m, mtf.candles_1h, mtf.candles_4h)
-
-    # Hard gate: ADX must show a trend
-    if ind.adx_1h is not None and not ind.adx_1h.has_trend:
-        logger.debug("analyze %s: ADX=%.1f < %d, no trend", mtf.symbol, ind.adx_1h.adx, MIN_ADX)
-        return None
-
-    # Current price
     current_price = mtf.candles_1h[-1].close
 
-    # ATR check
     atr_val = ind.atr_1h
     atr_pct_val = ind.atr_pct_1h
     if atr_val is None or atr_pct_val is None or atr_val <= 0:
-        logger.debug("analyze %s: ATR unavailable", mtf.symbol)
         return None
 
-    # Funding rate
     funding_rate = mtf.funding_rate.funding_rate if mtf.funding_rate else None
-
-    # Open Interest
     oi_current = mtf.open_interest.open_interest if mtf.open_interest else None
 
-    # Price change over last candle for OI vote
     price_change_pct = 0.0
     if len(mtf.candles_1h) >= 2:
         prev_close = mtf.candles_1h[-2].close
         if prev_close > 0:
             price_change_pct = ((current_price - prev_close) / prev_close) * 100.0
 
-    # --- Collect all 12 votes -----------------------------------------------
     votes: List[VoteResult] = [
         _vote_rsi_multi(ind),
         _vote_macd(ind),
         _vote_ema_cross(ind),
         _vote_bollinger(ind, current_price),
         _vote_stoch_rsi(ind),
-        _vote_adx(ind),
+        _vote_adx(ind.adx_1h, MIN_ADX),  # default ADX vote; `decide` recomputes it
         _vote_obv(ind),
         _vote_vwap(ind),
         _vote_funding_rate(funding_rate),
@@ -517,53 +541,86 @@ def analyze(
         _vote_cvd(ind),
     ]
 
-    # Count weighted votes
     long_score = sum(v.weight for v in votes if v.vote == "LONG")
     short_score = sum(v.weight for v in votes if v.vote == "SHORT")
     total_weight = sum(v.weight for v in votes)
 
-    logger.debug(
-        "analyze %s: LONG=%d SHORT=%d TOTAL=%d",
-        mtf.symbol, long_score, short_score, total_weight,
+    direction: SignalDirection = "LONG" if long_score >= short_score else "SHORT"
+    confluence_score = long_score if direction == "LONG" else short_score
+
+    sl, tp1, tp2, rr = _calculate_levels(current_price, atr_val, direction)
+    leverage = _calculate_leverage(atr_pct_val)
+
+    return BarAnalysis(
+        coin_id=mtf.coin_id,
+        symbol=mtf.symbol,
+        direction=direction,
+        confluence_score=confluence_score,
+        confluence_total=total_weight,
+        long_score=long_score,
+        short_score=short_score,
+        entry_price=current_price,
+        stop_loss=sl,
+        take_profit_1=tp1,
+        take_profit_2=tp2,
+        risk_reward=rr,
+        atr=atr_val,
+        atr_pct=atr_pct_val,
+        leverage=leverage,
+        adx=ind.adx_1h.adx if ind.adx_1h else 0.0,
+        adx_result=ind.adx_1h,
+        votes=votes,
+        bias_15m=_timeframe_bias(ind.rsi_15m, None),
+        bias_1h=_timeframe_bias(ind.rsi_1h, ind.macd_1h),
+        bias_4h=_timeframe_bias(ind.rsi_4h, None),
+        funding_rate=funding_rate or 0.0,
+        open_interest=oi_current or 0.0,
     )
 
-    # Determine direction
-    if long_score >= short_score:
-        direction: SignalDirection = "LONG"
-        confluence_score = long_score
-    else:
-        direction = "SHORT"
-        confluence_score = short_score
 
-    # Check minimum confluence
-    if confluence_score < MIN_CONFLUENCE:
+# --- Decision (applies thresholds to a BarAnalysis) -------------------------
+
+def decide(
+    mtf: MultiTimeframeKlines,
+    coin_name: str,
+    bar: BarAnalysis,
+    thresholds: Optional[SignalThresholds] = None,
+) -> Optional[TradingSignal]:
+    """Turn a BarAnalysis into a TradignSignal if it passes the configured gates."""
+    t = thresholds or SignalThresholds()
+
+    if bar.adx < t.min_adx:
+        logger.debug("analyze %s: ADX=%.1f < %.1f, no trend", mtf.symbol, bar.adx, t.min_adx)
+        return None
+
+    # Recomputed ADX vote so the vote reflects the configured ADX threshold.
+    votes = [v for v in bar.votes if v.name != "ADX 1h"]
+    votes.append(_vote_adx(bar.adx_result, t.min_adx))
+
+    long_score = sum(v.weight for v in votes if v.vote == "LONG")
+    short_score = sum(v.weight for v in votes if v.vote == "SHORT")
+    total_weight = sum(v.weight for v in votes)
+
+    direction: SignalDirection = "LONG" if long_score >= short_score else "SHORT"
+    confluence_score = long_score if direction == "LONG" else short_score
+
+    if confluence_score < t.min_confluence:
         logger.debug(
             "analyze %s: confluence %d/%d < %d threshold",
-            mtf.symbol, confluence_score, total_weight, MIN_CONFLUENCE,
+            mtf.symbol, confluence_score, total_weight, t.min_confluence,
         )
         return None
 
-    # Calculate trade levels
-    sl, tp1, tp2, rr = _calculate_levels(current_price, atr_val, direction)
-
-    # Check minimum Risk/Reward
-    if rr < MIN_RISK_REWARD:
-        logger.debug("analyze %s: R:R=%.2f < %.2f", mtf.symbol, rr, MIN_RISK_REWARD)
+    if bar.risk_reward < t.min_risk_reward:
+        logger.debug("analyze %s: R:R=%.2f < %.2f", mtf.symbol, bar.risk_reward, t.min_risk_reward)
         return None
 
-    leverage = _calculate_leverage(atr_pct_val)
     confidence = confluence_score / total_weight if total_weight > 0 else 0.0
-
-    # Timeframe biases for display
-    bias_15m = _timeframe_bias(ind.rsi_15m, None)
-    bias_1h = _timeframe_bias(ind.rsi_1h, ind.macd_1h)
-    bias_4h = _timeframe_bias(ind.rsi_4h, None)
-
-    signal_id = _make_signal_id(mtf.coin_id, direction, datetime.now(timezone.utc))
     signal_type = _label_signal(votes, direction)
+    now = datetime.now(timezone.utc)
 
     signal = TradingSignal(
-        id=signal_id,
+        id=_make_signal_id(mtf.coin_id, direction, now),
         coin_id=mtf.coin_id,
         symbol=mtf.symbol.replace("USDT", ""),
         name=coin_name,
@@ -571,31 +628,53 @@ def analyze(
         confluence_score=confluence_score,
         confluence_total=total_weight,
         confidence=round(confidence, 3),
-        entry_price=round(current_price, 6),
-        leverage=leverage,
-        stop_loss=round(sl, 6),
-        take_profit_1=round(tp1, 6),
-        take_profit_2=round(tp2, 6),
-        risk_reward=rr,
-        atr=round(atr_val, 6),
-        sl_pct=_pct_distance(current_price, sl),
-        tp1_pct=_pct_distance(current_price, tp1),
-        tp2_pct=_pct_distance(current_price, tp2),
+        entry_price=round(bar.entry_price, 6),
+        leverage=bar.leverage,
+        stop_loss=round(bar.stop_loss, 6),
+        take_profit_1=round(bar.take_profit_1, 6),
+        take_profit_2=round(bar.take_profit_2, 6),
+        risk_reward=bar.risk_reward,
+        atr=round(bar.atr, 6),
+        sl_pct=_pct_distance(bar.entry_price, bar.stop_loss),
+        tp1_pct=_pct_distance(bar.entry_price, bar.take_profit_1),
+        tp2_pct=_pct_distance(bar.entry_price, bar.take_profit_2),
         votes=votes,
-        bias_15m=bias_15m,
-        bias_1h=bias_1h,
-        bias_4h=bias_4h,
-        funding_rate=funding_rate or 0.0,
-        open_interest=oi_current or 0.0,
+        bias_15m=bar.bias_15m,
+        bias_1h=bar.bias_1h,
+        bias_4h=bar.bias_4h,
+        funding_rate=bar.funding_rate,
+        open_interest=bar.open_interest,
         signal_type=signal_type,
     )
 
     logger.info(
         "Signal %s %s | confluence=%d/%d | lev=%dx | RR=%.2f | entry=%.4f SL=%.4f TP1=%.4f",
         direction, mtf.symbol, confluence_score, total_weight,
-        leverage, rr, current_price, sl, tp1,
+        bar.leverage, bar.risk_reward, bar.entry_price, bar.stop_loss, bar.take_profit_1,
     )
     return signal
+
+
+# --- Main entry point -------------------------------------------------------
+
+def analyze(
+    mtf: MultiTimeframeKlines,
+    coin_name: str,
+    previous_oi: Optional[float] = None,
+    thresholds: Optional[SignalThresholds] = None,
+) -> Optional[TradingSignal]:
+    """Analyze a coin's multi-timeframe data and return a TradingSignal or None.
+
+    Returns None when:
+    - Not enough data to compute indicators
+    - ADX < threshold (no trend — never trade a ranging market)
+    - Confluence < threshold (weighted votes)
+    - Risk/Reward < threshold
+    """
+    bar = analyze_bar(mtf, previous_oi=previous_oi)
+    if bar is None:
+        return None
+    return decide(mtf, coin_name, bar, thresholds)
 
 
 def _make_signal_id(coin_id: str, direction: str, ts: datetime) -> str:

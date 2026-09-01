@@ -301,16 +301,10 @@ async function fetchFundingRate(symbol: string): Promise<number> {
 // MAIN SCANNER
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function scanLiveMarket(minConfluenceThreshold = 6): Promise<{ scannedCount: number; signalsFound: number }> {
+export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scannedCount: number; signalsFound: number }> {
   let generatedCount = 0;
-
-  // Clear previous signals
-  try {
-    const signalsSnap = await getDocs(collection(db, "trading_signals"));
-    for (const d of signalsSnap.docs) await deleteDoc(doc(db, "trading_signals", d.id));
-    const alertsSnap = await getDocs(collection(db, "alerts"));
-    for (const d of alertsSnap.docs) await deleteDoc(doc(db, "alerts", d.id));
-  } catch (err) { console.warn("Could not clear previous docs:", err); }
+  const newSignals: { id: string; data: any }[] = [];
+  const newAlerts: { id: string; data: any }[] = [];
 
   for (const item of SYMBOLS) {
     try {
@@ -343,7 +337,6 @@ export async function scanLiveMarket(minConfluenceThreshold = 6): Promise<{ scan
       const ema9     = calcEMA(closes1h, 9);
       const ema21    = calcEMA(closes1h, 21);
       const ema50    = calcEMA(closes1h, 50);
-      const ema200   = calcEMA(closes1h, 100); // Use 100 as proxy for 200 (limited data)
       const ema50_4h = calcEMA(closes4h, 50);
       const vwap     = calcVWAP(highs1h, lows1h, closes1h, volumes1h);
       const atr1h    = calcATR(highs1h, lows1h, closes1h, 14);
@@ -352,16 +345,6 @@ export async function scanLiveMarket(minConfluenceThreshold = 6): Promise<{ scan
       const bb       = calcBollingerBands(closes1h, 20, 2);
       const rsiDiv   = detectRSIDivergence(closes1h, 14);
       const candlePat = detectCandlePattern(opens1h, highs1h, lows1h, closes1h);
-
-      // ── MANDATORY PRE-FILTER: ADX trend strength ────────────────────────────
-      // Skip if market is ranging (ADX < 18 = no trend = lots of false signals)
-      if (adx.adx < 18) continue;
-
-      // ── MANDATORY PRE-FILTER: 4h must agree with 1h direction ──────────────
-      const trend4h   = currentPrice > ema50_4h ? "LONG" : "SHORT";
-      const rsiDir1h  = rsi1h < 50 ? "SHORT" : "LONG";
-      // If 4h trend is opposite to 1h RSI direction, skip
-      if (trend4h !== rsiDir1h) continue;
 
       // ── 9 PILLARS EVALUATION MATRIX ────────────────────────────────────────
       const votes: Array<{ name: string; vote: "LONG" | "SHORT" | "NEUTRAL"; weight: number; value: number; explanation: string }> = [];
@@ -384,129 +367,116 @@ export async function scanLiveMarket(minConfluenceThreshold = 6): Promise<{ scan
       }
 
       // PILAR 2: Tendencia Multitemporal EMA Ribbon (weight 2)
-      const emaLong  = currentPrice > ema9 && ema9 > ema21 && ema21 > ema50 && ema50 > ema200;
-      const emaShort = currentPrice < ema9 && ema9 < ema21 && ema21 < ema50 && ema50 < ema200;
+      const emaLong  = currentPrice > ema9 && ema9 > ema21 && ema21 > ema50;
+      const emaShort = currentPrice < ema9 && ema9 < ema21 && ema21 < ema50;
       if (emaLong) {
-        votes.push({ name: "2. Abanico EMA (9/21/50/100)", vote: "LONG", weight: 2, value: ema9, explanation: `Alineación alcista limpia: Precio>${ema9.toFixed(2)} EMA9>${ema21.toFixed(2)} EMA21>${ema50.toFixed(2)} EMA50.` });
+        votes.push({ name: "2. Abanico EMA (9/21/50)", vote: "LONG", weight: 2, value: ema9, explanation: `Alineación alcista: Precio>${ema9.toFixed(2)} EMA9>${ema21.toFixed(2)} EMA21.` });
         longScore += 2;
       } else if (emaShort) {
-        votes.push({ name: "2. Abanico EMA (9/21/50/100)", vote: "SHORT", weight: 2, value: ema9, explanation: `Alineación bajista limpia: Precio<${ema9.toFixed(2)} EMA9<${ema21.toFixed(2)} EMA21<${ema50.toFixed(2)} EMA50.` });
+        votes.push({ name: "2. Abanico EMA (9/21/50)", vote: "SHORT", weight: 2, value: ema9, explanation: `Alineación bajista: Precio<${ema9.toFixed(2)} EMA9<${ema21.toFixed(2)} EMA21.` });
         shortScore += 2;
       } else {
         votes.push({ name: "2. Abanico EMA", vote: "NEUTRAL", weight: 0.5, value: ema9, explanation: `EMAs comprimidas o cruzándose. Tendencia no definida.` });
       }
 
       // PILAR 3: Volumen Relativo Institucional (weight 2)
-      if (volumeRatio >= 1.35) {
+      if (volumeRatio >= 1.25) {
         const volDir = closes1h[closes1h.length - 1] >= closes1h[closes1h.length - 2] ? "LONG" : "SHORT";
-        votes.push({ name: "3. Volumen Institucional", vote: volDir, weight: 2, value: volumeRatio, explanation: `Pico de volumen ${volumeRatio}x sobre la media de 20 velas. Participación de capital institucional.` });
+        votes.push({ name: "3. Volumen Institucional", vote: volDir, weight: 2, value: volumeRatio, explanation: `Pico de volumen ${volumeRatio}x sobre la media de 20 velas.` });
         if (volDir === "LONG") longScore += 2; else shortScore += 2;
       } else {
-        votes.push({ name: "3. Volumen Relativo", vote: "NEUTRAL", weight: 0.5, value: volumeRatio, explanation: `Volumen normal (${volumeRatio}x vs media). Sin señal de acumulación/distribución.` });
+        votes.push({ name: "3. Volumen Relativo", vote: "NEUTRAL", weight: 0.5, value: volumeRatio, explanation: `Volumen normal (${volumeRatio}x vs media).` });
       }
 
       // PILAR 4: VWAP + Soporte/Resistencia Dinámica (weight 1.5)
       const vwapDistPct = parseFloat((((currentPrice - vwap) / vwap) * 100).toFixed(2));
-      if (currentPrice > vwap * 1.003) {
-        votes.push({ name: "4. VWAP & S/R Dinámico", vote: "LONG", weight: 1.5, value: vwap, explanation: `Precio ($${currentPrice.toFixed(2)}) por encima del VWAP ($${vwap.toFixed(2)}, +${vwapDistPct}%). Compradores en control.` });
+      if (currentPrice > vwap * 1.002) {
+        votes.push({ name: "4. VWAP & S/R Dinámico", vote: "LONG", weight: 1.5, value: vwap, explanation: `Precio ($${currentPrice.toFixed(2)}) por encima del VWAP ($${vwap.toFixed(2)}, +${vwapDistPct}%).` });
         longScore += 1.5;
-      } else if (currentPrice < vwap * 0.997) {
-        votes.push({ name: "4. VWAP & S/R Dinámico", vote: "SHORT", weight: 1.5, value: vwap, explanation: `Precio ($${currentPrice.toFixed(2)}) por debajo del VWAP ($${vwap.toFixed(2)}, ${vwapDistPct}%). Vendedores en control.` });
+      } else if (currentPrice < vwap * 0.998) {
+        votes.push({ name: "4. VWAP & S/R Dinámico", vote: "SHORT", weight: 1.5, value: vwap, explanation: `Precio ($${currentPrice.toFixed(2)}) por debajo del VWAP ($${vwap.toFixed(2)}, ${vwapDistPct}%).` });
         shortScore += 1.5;
       } else {
-        votes.push({ name: "4. VWAP", vote: "NEUTRAL", weight: 0.5, value: vwap, explanation: `Precio pegado al VWAP ($${vwap.toFixed(2)}). Zona de equilibrio, sin ventaja clara.` });
+        votes.push({ name: "4. VWAP", vote: "NEUTRAL", weight: 0.5, value: vwap, explanation: `Precio pegado al VWAP ($${vwap.toFixed(2)}).` });
       }
 
       // PILAR 5: Momentum MACD + RSI Multi-TF (weight 2)
-      const macdBull = macd.hist > 0 && macd.hist > macd.prevHist; // Rising histogram
-      const macdBear = macd.hist < 0 && macd.hist < macd.prevHist;
-      if (rsi1h < 48 && rsi15m < 50 && macdBull) {
-        votes.push({ name: "5. Momentum MACD+RSI", vote: "LONG", weight: 2, value: rsi1h, explanation: `RSI 1h (${rsi1h.toFixed(1)}) en zona compradora, RSI 15m (${rsi15m.toFixed(1)}). Histograma MACD acelerando al alza.` });
+      const macdBull = macd.hist > 0;
+      const macdBear = macd.hist < 0;
+      if (rsi1h < 52 && macdBull) {
+        votes.push({ name: "5. Momentum MACD+RSI", vote: "LONG", weight: 2, value: rsi1h, explanation: `RSI 1h (${rsi1h.toFixed(1)}) compradora. MACD positivo.` });
         longScore += 2;
-      } else if (rsi1h > 52 && rsi15m > 50 && macdBear) {
-        votes.push({ name: "5. Momentum MACD+RSI", vote: "SHORT", weight: 2, value: rsi1h, explanation: `RSI 1h (${rsi1h.toFixed(1)}) en zona vendedora, RSI 15m (${rsi15m.toFixed(1)}). Histograma MACD acelerando a la baja.` });
+      } else if (rsi1h > 48 && macdBear) {
+        votes.push({ name: "5. Momentum MACD+RSI", vote: "SHORT", weight: 2, value: rsi1h, explanation: `RSI 1h (${rsi1h.toFixed(1)}) vendedora. MACD negativo.` });
         shortScore += 2;
       } else {
-        votes.push({ name: "5. Momentum MACD+RSI", vote: "NEUTRAL", weight: 0.5, value: rsi1h, explanation: `Momentum neutro (RSI 1h=${rsi1h.toFixed(1)}, MACD hist=${macd.hist.toFixed(4)}).` });
+        votes.push({ name: "5. Momentum MACD+RSI", vote: "NEUTRAL", weight: 0.5, value: rsi1h, explanation: `Momentum neutro (RSI 1h=${rsi1h.toFixed(1)}).` });
       }
 
       // PILAR 6: ADX — Fuerza de Tendencia (weight 1.5)
-      if (adx.adx >= 25) {
+      if (adx.adx >= 20) {
         const adxDir = adx.plusDI > adx.minusDI ? "LONG" : "SHORT";
-        votes.push({ name: "6. ADX Tendencia Fuerte", vote: adxDir, weight: 1.5, value: adx.adx, explanation: `ADX ${adx.adx.toFixed(1)} ≥ 25. Tendencia fuerte confirmada. +DI ${adx.plusDI.toFixed(1)} vs -DI ${adx.minusDI.toFixed(1)}.` });
+        votes.push({ name: "6. ADX Tendencia", vote: adxDir, weight: 1.5, value: adx.adx, explanation: `ADX ${adx.adx.toFixed(1)} ≥ 20. +DI ${adx.plusDI.toFixed(1)} vs -DI ${adx.minusDI.toFixed(1)}.` });
         if (adxDir === "LONG") longScore += 1.5; else shortScore += 1.5;
       } else {
-        votes.push({ name: "6. ADX Tendencia Moderada", vote: "NEUTRAL", weight: 1, value: adx.adx, explanation: `ADX ${adx.adx.toFixed(1)} (18–25). Tendencia presente pero no consolidada.` });
+        votes.push({ name: "6. ADX Tendencia Moderada", vote: "NEUTRAL", weight: 1, value: adx.adx, explanation: `ADX ${adx.adx.toFixed(1)}. Rango o tendencia en construcción.` });
       }
 
-      // PILAR 7: Divergencia RSI (weight 3 cuando detectada — señal de alta precisión)
+      // PILAR 7: Divergencia RSI (weight 3 cuando detectada)
       if (rsiDiv === "BULLISH") {
-        votes.push({ name: "7. ⚡ Divergencia RSI Alcista", vote: "LONG", weight: 3, value: rsi1h, explanation: `Divergencia alcista detectada: precio en nuevo mínimo pero RSI en mínimo más alto. Señal de reversión de alta precisión.` });
+        votes.push({ name: "7. ⚡ Divergencia RSI Alcista", vote: "LONG", weight: 3, value: rsi1h, explanation: `Divergencia alcista detectada: precio en nuevo mínimo pero RSI en mínimo más alto.` });
         longScore += 3;
       } else if (rsiDiv === "BEARISH") {
-        votes.push({ name: "7. ⚡ Divergencia RSI Bajista", vote: "SHORT", weight: 3, value: rsi1h, explanation: `Divergencia bajista detectada: precio en nuevo máximo pero RSI en máximo más bajo. Señal de agotamiento alcista.` });
+        votes.push({ name: "7. ⚡ Divergencia RSI Bajista", vote: "SHORT", weight: 3, value: rsi1h, explanation: `Divergencia bajista detectada: precio en nuevo máximo pero RSI en máximo más bajo.` });
         shortScore += 3;
       } else {
-        votes.push({ name: "7. Divergencia RSI", vote: "NEUTRAL", weight: 0, value: rsi1h, explanation: `Sin divergencia RSI activa en el rango reciente de 20 velas.` });
+        votes.push({ name: "7. Divergencia RSI", vote: "NEUTRAL", weight: 0, value: rsi1h, explanation: `Sin divergencia RSI activa.` });
       }
 
       // PILAR 8: Bollinger Bands (weight 1.5)
-      if (bb.isSqueeze && bb.breakoutUp) {
-        votes.push({ name: "8. BB Squeeze Breakout ↑", vote: "LONG", weight: 1.5, value: bb.bandwidth, explanation: `Bollinger Squeeze (compresión ${bb.bandwidth.toFixed(1)}%) seguido de ruptura por la banda superior. Alta probabilidad de continuación.` });
+      if (bb.breakoutUp) {
+        votes.push({ name: "8. Bollinger Breakout ↑", vote: "LONG", weight: 1.5, value: bb.bandwidth, explanation: `Precio por encima de la banda superior de Bollinger.` });
         longScore += 1.5;
-      } else if (bb.isSqueeze && bb.breakoutDown) {
-        votes.push({ name: "8. BB Squeeze Breakout ↓", vote: "SHORT", weight: 1.5, value: bb.bandwidth, explanation: `Bollinger Squeeze (compresión ${bb.bandwidth.toFixed(1)}%) seguido de ruptura por la banda inferior.` });
-        shortScore += 1.5;
-      } else if (bb.breakoutUp) {
-        votes.push({ name: "8. Bollinger Breakout ↑", vote: "LONG", weight: 1, value: bb.bandwidth, explanation: `Precio por encima de la banda superior de Bollinger. Momentum fuerte al alza.` });
-        longScore += 1;
       } else if (bb.breakoutDown) {
-        votes.push({ name: "8. Bollinger Breakout ↓", vote: "SHORT", weight: 1, value: bb.bandwidth, explanation: `Precio por debajo de la banda inferior de Bollinger. Presión vendedora intensa.` });
-        shortScore += 1;
+        votes.push({ name: "8. Bollinger Breakout ↓", vote: "SHORT", weight: 1.5, value: bb.bandwidth, explanation: `Precio por debajo de la banda inferior de Bollinger.` });
+        shortScore += 1.5;
       } else {
-        votes.push({ name: "8. Bollinger Bands", vote: "NEUTRAL", weight: 0, value: bb.bandwidth, explanation: `Precio dentro de las Bandas de Bollinger (ancho ${bb.bandwidth.toFixed(1)}%). Sin breakout activo.` });
+        votes.push({ name: "8. Bollinger Bands", vote: "NEUTRAL", weight: 0, value: bb.bandwidth, explanation: `Precio dentro de las Bandas de Bollinger.` });
       }
 
       // PILAR 9: Patrón de Velas + Funding Rate (weight 1.5)
       let candleVote: "LONG" | "SHORT" | "NEUTRAL" = "NEUTRAL";
-      let candleExplanation = `Sin patrón de velas significativo en las últimas 3 barras.`;
+      let candleExplanation = `Sin patrón de velas extremo.`;
       if (candlePat === "HAMMER" || candlePat === "BULL_ENGULFING") {
         candleVote = "LONG";
-        candleExplanation = `Patrón ${candlePat === "HAMMER" ? "Martillo (Hammer)" : "Envolvente Alcista (Bull Engulfing)"} detectado. Señal de reversión o continuación alcista.`;
+        candleExplanation = `Patrón ${candlePat === "HAMMER" ? "Martillo" : "Envolvente Alcista"} detectado.`;
         longScore += 1.5;
       } else if (candlePat === "SHOOTING_STAR" || candlePat === "BEAR_ENGULFING") {
         candleVote = "SHORT";
-        candleExplanation = `Patrón ${candlePat === "SHOOTING_STAR" ? "Estrella Fugaz (Shooting Star)" : "Envolvente Bajista (Bear Engulfing)"} detectado. Señal de rechazo o reversión bajista.`;
+        candleExplanation = `Patrón ${candlePat === "SHOOTING_STAR" ? "Estrella Fugaz" : "Envolvente Bajista"} detectado.`;
         shortScore += 1.5;
       }
-      // Funding rate overlay
-      if (fundingRate < -0.003) {
-        votes.push({ name: `9. Velas+Funding`, vote: "LONG", weight: 1.5, value: fundingRate, explanation: `${candleExplanation} Funding negativo (${(fundingRate * 100).toFixed(4)}%) refuerza la señal LONG.` });
-        longScore += 0.5;
-      } else if (fundingRate > 0.003) {
-        votes.push({ name: `9. Velas+Funding`, vote: "SHORT", weight: 1.5, value: fundingRate, explanation: `${candleExplanation} Funding elevado (${(fundingRate * 100).toFixed(4)}%) refuerza la señal SHORT.` });
-        shortScore += 0.5;
-      } else {
-        votes.push({ name: `9. Velas+Funding`, vote: candleVote, weight: 1.5, value: fundingRate, explanation: `${candleExplanation} Funding neutro (${(fundingRate * 100).toFixed(4)}%).` });
-      }
+      votes.push({ name: `9. Velas+Funding`, vote: candleVote, weight: 1.5, value: fundingRate, explanation: `${candleExplanation} Funding (${(fundingRate * 100).toFixed(4)}%).` });
 
       // ── Score calculation ────────────────────────────────────────────────────
       const direction: "LONG" | "SHORT" = longScore >= shortScore ? "LONG" : "SHORT";
       const winningScore = direction === "LONG" ? longScore : shortScore;
-      const totalPossible = 3 + 2 + 2 + 1.5 + 2 + 1.5 + 3 + 1.5 + 1.5; // max ~18.5
-      const confluenceScore = Math.min(12, Math.round((winningScore / totalPossible) * 12));
+      const totalPossible = 16.5;
+      const confluenceScore = Math.min(12, Math.max(4, Math.round((winningScore / totalPossible) * 12)));
 
-      if (confluenceScore < minConfluenceThreshold) continue;
-
-      // Minimum R:R requirement: only trade with at least 1.8 R:R
-      const leverage = Math.min(10, Math.max(3, Math.floor(8 / atrPct)));
-      const slPct    = parseFloat((atrPct * 1.5).toFixed(2));
-      const tp1Pct   = parseFloat((atrPct * 2.5).toFixed(2));
-      const tp2Pct   = parseFloat((atrPct * 4.2).toFixed(2));
+      // Dynamic leverage based on ATR volatility and ADX market regime (Recommendation #3)
+      // Ranging market (ADX < 25): Conservative 3x-5x to avoid liquidation on chop
+      // Trending market (ADX >= 25): Controlled 5x-10x
+      let leverage = 5;
+      if (adx.adx < 25) {
+        leverage = Math.min(5, Math.max(3, Math.floor(5 / (atrPct || 1))));
+      } else {
+        leverage = Math.min(10, Math.max(5, Math.floor(8 / (atrPct || 1))));
+      }
+      const slPct    = parseFloat((Math.max(1.2, atrPct * 1.5)).toFixed(2));
+      const tp1Pct   = parseFloat((slPct * 1.6).toFixed(2));
+      const tp2Pct   = parseFloat((slPct * 2.8).toFixed(2));
       const rr       = parseFloat((tp1Pct / slPct).toFixed(2));
-
-      // Skip if R:R < 1.6
-      if (rr < 1.6) continue;
 
       const isLong  = direction === "LONG";
       const entry   = currentPrice;
@@ -515,46 +485,14 @@ export async function scanLiveMarket(minConfluenceThreshold = 6): Promise<{ scan
       const tp2     = isLong ? entry * (1 + tp2Pct / 100) : entry * (1 - tp2Pct / 100);
       const changePct = parseFloat((((currentPrice - k1h[0].open) / k1h[0].open) * 100).toFixed(2));
 
-      const docId = `live_${item.symbol.toLowerCase()}_${Date.now()}`;
+      const nowTs = Date.now();
+      const signalId = `live_${item.symbol.toLowerCase()}_${nowTs}`;
+      const alertId = `alert_live_${item.symbol.toLowerCase()}_${nowTs}`;
 
-      await setDoc(doc(db, "trading_signals", docId), {
-        coin_id: item.coin_id,
-        symbol: item.symbol,
-        name: item.name,
-        direction,
-        confluence_score: confluenceScore,
-        confluence_total: 12,
-        confidence: parseFloat((confluenceScore / 12).toFixed(2)),
-        entry_price: parseFloat(entry.toFixed(4)),
-        leverage,
-        stop_loss: parseFloat(sl.toFixed(4)),
-        take_profit_1: parseFloat(tp1.toFixed(4)),
-        take_profit_2: parseFloat(tp2.toFixed(4)),
-        risk_reward: rr,
-        atr: parseFloat(atr1h.toFixed(4)),
-        sl_pct: slPct,
-        tp1_pct: tp1Pct,
-        tp2_pct: tp2Pct,
-        votes,
-        adx: adx.adx,
-        rsi_divergence: rsiDiv,
-        candle_pattern: candlePat,
-        bb_squeeze: bb.isSqueeze,
-        bias_15m: rsi15m < 50 ? "SHORT" : "LONG",
-        bias_1h: rsi1h < 50 ? "SHORT" : "LONG",
-        bias_4h: rsi4h < 50 ? "SHORT" : "LONG",
-        funding_rate: fundingRate,
-        kraken_symbol: item.kraken,
-        signal_type: confluenceScore >= 9
-          ? `${direction} Alta Precisión (${confluenceScore}/12 pilares, ADX ${adx.adx.toFixed(0)}, ${rsiDiv !== "NONE" ? "Div RSI" : "sin div"})`
-          : `${direction} Confluencia Moderada (${confluenceScore}/12 pilares, ADX ${adx.adx.toFixed(0)})`,
-        min_tier: "free",
-        created_at: Timestamp.now(),
-      });
-
-      await setDoc(doc(db, "alerts", `alert_live_${item.symbol.toLowerCase()}_${Date.now()}`), {
+      // Create alert document for every scanned pair (Market Alerts)
+      const alertDoc = {
         type: changePct >= 0 ? "price_surge" : "price_dump",
-        severity: confluenceScore >= 9 ? "high" : "medium",
+        severity: confluenceScore >= 8 ? "high" : "medium",
         coin_id: item.coin_id,
         symbol: item.symbol,
         name: item.name,
@@ -564,13 +502,108 @@ export async function scanLiveMarket(minConfluenceThreshold = 6): Promise<{ scan
         volume_24h_usd: k1h.reduce((a: number, b: { volume: number; close: number }) => a + b.volume * b.close, 0),
         volume_ratio: volumeRatio,
         score: Math.min(98, confluenceScore * 8 + 10),
-        title: `${direction === "LONG" ? "🟢" : "🔴"} ${item.symbol} $${entry.toFixed(2)} — ADX ${adx.adx.toFixed(0)}, ${rsiDiv !== "NONE" ? "⚡Div RSI" : "Sin Div"} (${changePct >= 0 ? "+" : ""}${changePct}%)`,
+        title: `${direction === "LONG" ? "🟢" : "🔴"} ${item.symbol} $${entry.toFixed(2)} — Confluencia ${confluenceScore}/12 (${changePct >= 0 ? "+" : ""}${changePct}%)`,
         summary: `Motor de 9 Pilares para ${item.name}. ADX ${adx.adx.toFixed(1)}, Confluencia ${confluenceScore}/12.`,
-        explanation: `Análisis avanzado: ADX=${adx.adx.toFixed(1)} (tendencia), Divergencia RSI=${rsiDiv}, Patrón velas=${candlePat}, BB Squeeze=${bb.isSqueeze}. VWAP $${vwap.toFixed(2)}.`,
+        explanation: `Análisis avanzado: ADX=${adx.adx.toFixed(1)}, Divergencia RSI=${rsiDiv}, Patrón velas=${candlePat}, BB Squeeze=${bb.isSqueeze}. VWAP $${vwap.toFixed(2)}.`,
         recommended_action: `${direction} en $${entry.toFixed(2)} · SL $${sl.toFixed(2)} (-${slPct}%) · TP1 $${tp1.toFixed(2)} (+${tp1Pct}%) · Kraken ${item.kraken}`,
         min_tier: "free",
         created_at: Timestamp.now(),
-      });
+      };
+      newAlerts.push({ id: alertId, data: alertDoc });
+
+      // ── TIMEFRAME CONFIDENCE CALCULATIONS (X/10 rating) ────────────────────
+      let score15mRaw = 5;
+      if (rsi15m < 42) score15mRaw += 3;
+      else if (rsi15m < 50) score15mRaw += 1.5;
+      else if (rsi15m > 58) score15mRaw -= 3;
+      else score15mRaw -= 1.5;
+      if (candlePat === "HAMMER" || candlePat === "BULL_ENGULFING") score15mRaw += 2;
+      if (candlePat === "SHOOTING_STAR" || candlePat === "BEAR_ENGULFING") score15mRaw -= 2;
+
+      const dir15m = score15mRaw >= 5 ? "LONG" : "SHORT";
+      const rating15m = dir15m === "LONG" ? Math.min(10, Math.max(3, Math.round(score15mRaw))) : Math.min(10, Math.max(3, Math.round(10 - score15mRaw)));
+
+      let score1hRaw = 5;
+      if (emaLong) score1hRaw += 2.5; else if (emaShort) score1hRaw -= 2.5;
+      if (currentPrice > vwap * 1.002) score1hRaw += 1.5; else if (currentPrice < vwap * 0.998) score1hRaw -= 1.5;
+      if (macd.hist > 0) score1hRaw += 1.5; else score1hRaw -= 1.5;
+      if (rsiDiv === "BULLISH") score1hRaw += 2.5; else if (rsiDiv === "BEARISH") score1hRaw -= 2.5;
+
+      const dir1h = score1hRaw >= 5 ? "LONG" : "SHORT";
+      const rating1h = dir1h === "LONG" ? Math.min(10, Math.max(3, Math.round(score1hRaw))) : Math.min(10, Math.max(3, Math.round(10 - score1hRaw)));
+
+      let score4hRaw = 5;
+      if (currentPrice > ema50_4h) score4hRaw += 3.5; else score4hRaw -= 3.5;
+      if (rsi4h > 50) score4hRaw += 1.5; else score4hRaw -= 1.5;
+
+      const dir4h = score4hRaw >= 5 ? "LONG" : "SHORT";
+      const rating4h = dir4h === "LONG" ? Math.min(10, Math.max(3, Math.round(score4hRaw))) : Math.min(10, Math.max(3, Math.round(10 - score4hRaw)));
+
+      const bias_15m = `${dir15m} ${rating15m}/10`;
+      const bias_1h = `${dir1h} ${rating1h}/10`;
+      const bias_4h = `${dir4h} ${rating4h}/10`;
+
+      // ── MULTI-TIMEFRAME ALIGNMENT GUARD ─────────────────────────────────────
+      // Rule: If 15m and 4h are BOTH opposing the trade direction (e.g. trade SHORT, but 15m & 4h are LONG),
+      // DO NOT allow ALTA CONFLUENCIA (cap score at 8 max and flag conflict).
+      const opposes15mAnd4h = (direction === "SHORT" && dir15m === "LONG" && dir4h === "LONG") ||
+                              (direction === "LONG" && dir15m === "SHORT" && dir4h === "SHORT");
+
+      let effectiveConfluence = confluenceScore;
+      if (opposes15mAnd4h && effectiveConfluence >= 9) {
+        effectiveConfluence = 8; // Demote from High to Medium Confluence due to timeframe contradiction
+      }
+
+      let signalTypeLabel = "";
+      if (effectiveConfluence >= 9 && !opposes15mAnd4h) {
+        signalTypeLabel = `${direction} Alta Confluencia (9-12/12 — Señal Fuerte)`;
+      } else if (effectiveConfluence >= 7) {
+        signalTypeLabel = opposes15mAnd4h
+          ? `${direction} Confluencia Media (7-8/12 — Conflicto 15m/4h)`
+          : `${direction} Confluencia Media (7-8/12 — Esperar Confirmación)`;
+      } else if (effectiveConfluence >= 5) {
+        signalTypeLabel = `${direction} Señal Débil (5-6/12 — Precaución / No Entrar)`;
+      } else {
+        signalTypeLabel = `${direction} Descartar (<5/12 — Sin Confluencia)`;
+      }
+
+      // Create trading signal document if confluence >= minConfluenceThreshold
+      if (effectiveConfluence >= minConfluenceThreshold) {
+        const signalDoc = {
+          coin_id: item.coin_id,
+          symbol: item.symbol,
+          name: item.name,
+          direction,
+          confluence_score: effectiveConfluence,
+          confluence_total: 12,
+          confidence: parseFloat((effectiveConfluence / 12).toFixed(2)),
+          entry_price: parseFloat(entry.toFixed(4)),
+          leverage,
+          stop_loss: parseFloat(sl.toFixed(4)),
+          take_profit_1: parseFloat(tp1.toFixed(4)),
+          take_profit_2: parseFloat(tp2.toFixed(4)),
+          risk_reward: rr,
+          atr: parseFloat(atr1h.toFixed(4)),
+          sl_pct: slPct,
+          tp1_pct: tp1Pct,
+          tp2_pct: tp2Pct,
+          votes,
+          adx: adx.adx,
+          rsi_divergence: rsiDiv,
+          candle_pattern: candlePat,
+          bb_squeeze: bb.isSqueeze,
+          timeframe_conflict: opposes15mAnd4h,
+          bias_15m,
+          bias_1h,
+          bias_4h,
+          funding_rate: fundingRate,
+          kraken_symbol: item.kraken,
+          signal_type: signalTypeLabel,
+          min_tier: "free",
+          created_at: Timestamp.now(),
+        };
+        newSignals.push({ id: signalId, data: signalDoc });
+      }
 
       generatedCount++;
     } catch (err) {
@@ -578,5 +611,25 @@ export async function scanLiveMarket(minConfluenceThreshold = 6): Promise<{ scan
     }
   }
 
-  return { scannedCount: SYMBOLS.length, signalsFound: generatedCount };
+  // ONLY clear old documents if we have successfully built new ones!
+  if (newAlerts.length > 0 || newSignals.length > 0) {
+    try {
+      const signalsSnap = await getDocs(collection(db, "trading_signals"));
+      for (const d of signalsSnap.docs) await deleteDoc(doc(db, "trading_signals", d.id));
+      const alertsSnap = await getDocs(collection(db, "alerts"));
+      for (const d of alertsSnap.docs) await deleteDoc(doc(db, "alerts", d.id));
+    } catch (err) {
+      console.warn("Could not clear previous docs:", err);
+    }
+
+    // Write new signals and alerts
+    for (const item of newSignals) {
+      await setDoc(doc(db, "trading_signals", item.id), item.data);
+    }
+    for (const item of newAlerts) {
+      await setDoc(doc(db, "alerts", item.id), item.data);
+    }
+  }
+
+  return { scannedCount: SYMBOLS.length, signalsFound: newSignals.length };
 }

@@ -1,5 +1,11 @@
 // Shared helpers for working with Firestore.
-import { Firestore, Query, Timestamp, WriteBatch } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  Firestore,
+  Query,
+  Timestamp,
+  WriteBatch,
+} from "firebase-admin/firestore";
 import { AlertPayload, TradingSignalPayload } from "./types";
 
 export interface UserPreferences {
@@ -107,4 +113,65 @@ export async function findMatchingUsers(
     const prefs: UserPreferences = { ...DEFAULT_PREFS, ...(data.preferences || {}) };
     return userMatchesAlert(prefs, alert);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Signal outcome statistics (closed-loop learning)
+// ---------------------------------------------------------------------------
+
+export interface SignalOutcomeStat {
+  coin_id: string;
+  signal_type: string;
+  direction: "LONG" | "SHORT";
+}
+
+/**
+ * Increments win/loss counters for a signal's setup. Writes denormalized
+ * aggregates in `signal_stats` so the frontend can show win-rate per setup
+ * and per coin+setup without needing composite indexes on outcomes.
+ */
+export async function recordSignalOutcome(
+  db: Firestore,
+  signal: SignalOutcomeStat,
+  result: "WIN" | "LOSS"
+): Promise<void> {
+  const col = db.collection("signal_stats");
+  const wins = FieldValue.increment(result === "WIN" ? 1 : 0);
+  const losses = FieldValue.increment(result === "LOSS" ? 1 : 0);
+  const total = FieldValue.increment(1);
+
+  const setupKey = signal.signal_type || "unknown";
+  const stamp = Timestamp.now();
+
+  const setupDoc = {
+    signal_type: setupKey,
+    wins,
+    losses,
+    total,
+    updated_at: stamp,
+  };
+  await col.doc(`setup_${setupKey}`).set(setupDoc, { merge: true });
+
+  const coinSetupDoc = {
+    coin_id: signal.coin_id,
+    signal_type: setupKey,
+    direction: signal.direction,
+    wins,
+    losses,
+    total,
+    updated_at: stamp,
+  };
+  await col
+    .doc(`coin_${signal.coin_id}_${setupKey}`)
+    .set(coinSetupDoc, { merge: true });
+
+  await col.doc("_meta").set(
+    {
+      wins,
+      losses,
+      total,
+      updated_at: stamp,
+    },
+    { merge: true }
+  );
 }

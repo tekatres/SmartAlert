@@ -23,6 +23,8 @@ export { createCheckoutSession } from "./handlers/createCheckoutSession";
 export { submitAlertFeedback } from "./handlers/submitAlertFeedback";
 export { getConversionStats } from "./handlers/getConversionStats";
 export { trackCtaEvent } from "./handlers/trackCtaEvent";
+export { setEngineConfig } from "./handlers/setEngineConfig";
+export { getEngineConfig } from "./handlers/getEngineConfig";
 
 // HTTPS
 export { triggerAlerts } from "./handlers/triggerAlerts";

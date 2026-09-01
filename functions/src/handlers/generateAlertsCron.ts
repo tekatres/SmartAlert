@@ -7,6 +7,14 @@ import { ALERT_ENGINE_API_KEY, ALERT_ENGINE_URL, CRON_SCHEDULE } from "../config
 import { callAlertEngine } from "../alertEngineClient";
 import { persistAlerts, persistTradingSignals } from "../repositories";
 
+// Backtest-calibrated default so the engine emits signals even before the
+// user touches the threshold controller (conf=8, R:R=1.2, ADX=25 → EV≈+0.19R).
+const DEFAULT_THRESHOLDS = {
+  min_confluence: 8,
+  min_risk_reward: 1.2,
+  min_adx: 25,
+};
+
 export const generateAlertsCron = onSchedule(
   {
     schedule: CRON_SCHEDULE.value(),
@@ -31,9 +39,20 @@ export const generateAlertsCron = onSchedule(
     const startedAt = Timestamp.now();
 
     try {
+      // Read tunable engine thresholds from engine_config/global (if present).
+      // Falls back to the backtest-calibrated defaults when absent.
+      const configSnap = await db.collection("engine_config").doc("global").get();
+      const cfg = configSnap.exists ? configSnap.data() : null;
+      const signal_thresholds = {
+        min_confluence: Number(cfg?.min_confluence) || DEFAULT_THRESHOLDS.min_confluence,
+        min_risk_reward: Number(cfg?.min_risk_reward) || DEFAULT_THRESHOLDS.min_risk_reward,
+        min_adx: Number(cfg?.min_adx) || DEFAULT_THRESHOLDS.min_adx,
+      };
+
       const response = await callAlertEngine(baseUrl, apiKey, {
         sensitivity: "medium",
         use_ai: true,
+        signal_thresholds,
       });
 
       // Persist classic alerts

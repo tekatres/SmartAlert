@@ -99,12 +99,16 @@ async def fetch_klines(
     symbol: str,
     interval: str,
     limit: int = KLINE_LIMIT,
+    start_time: Optional[int] = None,
 ) -> List[Candle]:
     """Fetch OHLCV klines for a futures symbol from Binance Futures API."""
     try:
+        params: dict = {"symbol": symbol, "interval": interval, "limit": limit}
+        if start_time is not None:
+            params["startTime"] = start_time
         resp = await client.get(
             f"{FUTURES_BASE}/fapi/v1/klines",
-            params={"symbol": symbol, "interval": interval, "limit": limit},
+            params=params,
         )
         resp.raise_for_status()
         return _parse_candles(resp.json())
@@ -160,6 +164,35 @@ async def fetch_open_interest(
     except Exception as e:
         logger.warning("fetch_open_interest %s failed: %s", symbol, e)
         return None
+
+
+async def fetch_klines_between(
+    client: httpx.AsyncClient,
+    symbol: str,
+    interval: str,
+    start_time_ms: int,
+    end_time_ms: int,
+    limit: int = 1000,
+) -> List[Candle]:
+    """Fetch all klines in [start_time_ms, end_time_ms), paginating past the API limit.
+
+    Used by the backtester to load long historical windows.
+    """
+    candles: List[Candle] = []
+    cursor = start_time_ms
+    while cursor < end_time_ms:
+        batch = await fetch_klines(
+            client, symbol, interval, limit=limit, start_time=cursor
+        )
+        if not batch:
+            break
+        candles.extend(batch)
+        next_cursor = int(batch[-1].timestamp.timestamp() * 1000) + 1
+        if next_cursor <= cursor:
+            break
+        cursor = next_cursor
+
+    return [c for c in candles if c.timestamp.timestamp() * 1000 < end_time_ms]
 
 
 async def fetch_multi_timeframe(

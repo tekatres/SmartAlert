@@ -92,6 +92,26 @@ export interface SignalVote {
   explanation: string;
 }
 
+export interface SignalOutcome {
+  result: "WIN" | "LOSS" | "PENDING";
+  hit_level: "TP1" | "TP2" | "SL" | "NONE";
+  profitable_1h?: boolean | null;
+  profitable_4h?: boolean | null;
+  price_1h?: number | null;
+  price_4h?: number | null;
+  max_favorable_excursion_pct?: number | null;
+  max_adverse_excursion_pct?: number | null;
+  checked_at?: { seconds: number; nanoseconds: number } | string | null;
+}
+
+export interface SignalSetupStat {
+  signal_type: string;
+  wins: number;
+  losses: number;
+  total: number;
+  updated_at?: { seconds: number; nanoseconds: number } | string | null;
+}
+
 export interface TradingSignalDoc {
   id: string;
   coin_id: string;
@@ -121,6 +141,7 @@ export interface TradingSignalDoc {
   min_tier: UserTier;
   created_at: { seconds: number; nanoseconds: number } | string;
   expires_at?: { seconds: number; nanoseconds: number } | string | null;
+  outcome?: SignalOutcome | null;
 }
 
 export interface ConversionStats {

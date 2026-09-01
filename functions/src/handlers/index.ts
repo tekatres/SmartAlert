@@ -13,3 +13,5 @@ export { createCheckoutSession } from "./createCheckoutSession";
 export { submitAlertFeedback } from "./submitAlertFeedback";
 export { getConversionStats } from "./getConversionStats";
 export { trackCtaEvent } from "./trackCtaEvent";
+export { setEngineConfig } from "./setEngineConfig";
+export { getEngineConfig } from "./getEngineConfig";

@@ -17,16 +17,8 @@ import { AlertDoc, ConversionStats, UserPreferences, FcmDevice } from "@/types";
 
 const functions = getFunctionsInstance();
 
-export const registerFcmTokenFn = httpsCallable<
-  { token: string; platform?: "web" | "android" | "ios"; device_id?: string },
-  { ok: boolean }
->(functions, "registerFcmToken");
-
-export const updateUserPreferencesFn = httpsCallable<
-  Partial<UserPreferences>,
-  { ok: boolean; preferences: UserPreferences }
->(functions, "updateUserPreferences");
-
+// Optional callables (need Cloud Functions deployed). Core flows use direct
+// Firestore writes so the app works without Cloud Functions (Spark plan).
 export const submitAlertFeedbackFn = httpsCallable<
   { alert_id: string; kind: string; comment?: string },
   { ok: boolean }
@@ -102,4 +94,57 @@ export async function upsertFcmTokenLocal(uid: string, device: FcmDevice) {
   await updateDoc(ref, {
     fcm_tokens: arrayUnion({ ...device, last_seen: new Date().toISOString() }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Engine thresholds (engine_config/global) — direct Firestore (no Cloud Functions).
+// ---------------------------------------------------------------------------
+
+export interface EngineThresholdConfig {
+  min_confluence: number;    // weighted votes (of 15)
+  min_risk_reward: number;   // minimum R:R
+  min_adx: number;           // minimum ADX to consider a trend
+}
+
+// Backtest-calibrated defaults (best EV from grid search: EV≈+0.19R).
+export const ENGINE_CONFIG_DEFAULTS: EngineThresholdConfig = {
+  min_confluence: 8,
+  min_risk_reward: 1.2,
+  min_adx: 25,
+};
+
+// Presets per "tramo" de sensibilidad (basados en el backtest 30d).
+export const ENGINE_PRESETS: Record<
+  "baja" | "media" | "alta",
+  EngineThresholdConfig
+> = {
+  baja: { min_confluence: 8, min_risk_reward: 1.5, min_adx: 25 }, // estricto: menos señales, calidad
+  media: { min_confluence: 8, min_risk_reward: 1.2, min_adx: 25 }, // óptimo calibrado (EV +0.19R)
+  alta: { min_confluence: 6, min_risk_reward: 1.2, min_adx: 15 },  // muchas más señales
+};
+
+export function watchEngineConfig(
+  callback: (cfg: EngineThresholdConfig) => void
+): () => void {
+  const ref = doc(db, "engine_config", "global");
+  return onSnapshot(ref, (snap) => {
+    if (!snap.exists()) {
+      callback(ENGINE_CONFIG_DEFAULTS);
+      return;
+    }
+    const d = snap.data();
+    callback({
+      min_confluence: Number(d.min_confluence) || ENGINE_CONFIG_DEFAULTS.min_confluence,
+      min_risk_reward: Number(d.min_risk_reward) || ENGINE_CONFIG_DEFAULTS.min_risk_reward,
+      min_adx: Number(d.min_adx) || ENGINE_CONFIG_DEFAULTS.min_adx,
+    });
+  });
+}
+
+export async function saveEngineConfig(cfg: EngineThresholdConfig) {
+  await setDoc(
+    doc(db, "engine_config", "global"),
+    { ...cfg, updated_at: serverTimestamp() },
+    { merge: true }
+  );
 }

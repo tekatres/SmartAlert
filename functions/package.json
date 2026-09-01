@@ -23,8 +23,9 @@
     "stripe": "^17.5.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
-    "jest": "^29.7.0"
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.12",
+    "typescript": "^5.7.3"
   },
   "private": true,
   "overrides": {
