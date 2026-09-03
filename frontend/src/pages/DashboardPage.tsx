@@ -141,6 +141,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* ---- REAL-TIME ACTIVE POSITIONS TRACKER (FIRST IN VIEW) ---- */}
+      <LiveDashboardPositionsTracker />
+
       {/* ---- HEADER ---- */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -504,6 +507,207 @@ function EmptyState() {
       <p className="mt-1 text-xs text-slate-500">
         Las alertas se generan automáticamente cada pocos minutos.
       </p>
+    </div>
+  );
+}
+
+// -------------------------------------------------------
+// LIVE DASHBOARD POSITIONS TRACKER
+// -------------------------------------------------------
+import { usePaperTrading } from "@/hooks/usePaperTrading";
+import { useLivePrices } from "@/hooks/useLivePrices";
+
+function LiveDashboardPositionsTracker() {
+  const { trades, closeTrade, balance, netPnl } = usePaperTrading();
+  const { signals } = useSignals(50);
+  const openTrades = trades.filter((t) => t.status === "OPEN");
+
+  const openSymbols = Array.from(new Set(openTrades.map((t) => t.symbol)));
+  const livePrices = useLivePrices(openSymbols, 2500);
+
+  if (openTrades.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-r from-slate-900 via-emerald-950/20 to-slate-950 p-4 sm:p-5 shadow-2xl space-y-3 animate-in fade-in zoom-in duration-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded bg-emerald-500/20 text-emerald-400 font-bold text-sm">
+            ⚡
+          </span>
+          <div>
+            <h2 className="text-sm font-black uppercase tracking-wider text-slate-100 flex items-center gap-2">
+              Mis Operaciones Abiertas en Vivo ({openTrades.length})
+              <span className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] text-emerald-300 font-mono border border-emerald-500/30">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" /> PRECIO EN DIRECTO
+              </span>
+            </h2>
+            <p className="text-[11px] text-slate-400">
+              P&amp;L en tiempo real de Binance Futures. Cierra cuando llegues a tu objetivo.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 text-xs font-mono bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 self-start sm:self-auto">
+          <div>
+            <span className="text-[10px] text-slate-500 block uppercase font-bold">Saldo Total:</span>
+            <span className="font-bold text-emerald-400">${balance.toFixed(2)} USD</span>
+          </div>
+          <div className="border-l border-slate-800 pl-3">
+            <span className="text-[10px] text-slate-500 block uppercase font-bold">Ganancia Total:</span>
+            <span className={clsx("font-bold", netPnl >= 0 ? "text-emerald-300" : "text-rose-400")}>
+              {netPnl >= 0 ? "+" : ""}${netPnl.toFixed(2)} USD
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {openTrades.map((t) => {
+          const livePrice = livePrices[t.symbol] ?? t.entryPrice;
+          const priceDiff = t.direction === "LONG" ? livePrice - t.entryPrice : t.entryPrice - livePrice;
+          const pnlUsd = (priceDiff / t.entryPrice) * t.positionUsd;
+          const roePct = (pnlUsd / t.marginUsd) * 100;
+          const isProfit = pnlUsd >= 0;
+
+          return (
+            <div
+              key={t.id}
+              className={clsx(
+                "rounded-xl p-3.5 border transition-all space-y-2.5",
+                isProfit
+                  ? "border-emerald-500/40 bg-emerald-500/5"
+                  : "border-rose-500/40 bg-rose-500/5"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={clsx(
+                      "font-black text-xs px-2 py-0.5 rounded",
+                      t.direction === "LONG"
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                    )}
+                  >
+                    {t.symbol} {t.direction} {t.leverage}x
+                  </span>
+                  <span className="text-xs font-mono text-slate-300">
+                    Entrada: ${t.entryPrice.toFixed(4)}
+                  </span>
+                </div>
+
+                <div className="text-right font-mono">
+                  <span className="text-[10px] text-slate-500 uppercase block font-bold">Precio Vivo</span>
+                  <span className="font-bold text-amber-300 text-xs">${livePrice.toFixed(4)}</span>
+                </div>
+              </div>
+
+              {/* LIVE PNL DISPLAY BAR */}
+              <div className="flex items-center justify-between bg-slate-950/80 p-2.5 rounded-lg border border-slate-800/80 font-mono">
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase block font-bold">P&amp;L EN DIRECTO</span>
+                  <span
+                    className={clsx(
+                      "text-base font-black tracking-tight",
+                      isProfit ? "text-emerald-400" : "text-rose-400"
+                    )}
+                  >
+                    {isProfit ? "+" : ""}${pnlUsd.toFixed(2)} USDT
+                  </span>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-500 uppercase block font-bold">RENTABILIDAD (ROE)</span>
+                  <span
+                    className={clsx(
+                      "text-sm font-bold",
+                      isProfit ? "text-emerald-300" : "text-rose-300"
+                    )}
+                  >
+                    {isProfit ? "+" : ""}{roePct.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+
+              {/* LIVE HEALTH DIAGNOSIS BADGE (VA BIEN vs VA MAL + MOTOR SEÑALES) */}
+              <div className="rounded-lg bg-slate-950/90 p-2.5 border border-slate-800 text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Diagnóstico P&amp;L:</span>
+                  {roePct >= 15 ? (
+                    <span className="font-bold text-emerald-400 flex items-center gap-1">
+                      🟢 Excelente impulsión (+{roePct.toFixed(1)}%). Próximo a TP.
+                    </span>
+                  ) : roePct > 0 ? (
+                    <span className="font-bold text-emerald-300 flex items-center gap-1">
+                      🟢 Operación positiva (+{roePct.toFixed(1)}%). Avanzando según plan.
+                    </span>
+                  ) : roePct >= -10 ? (
+                    <span className="font-bold text-amber-300 flex items-center gap-1">
+                      🟡 Retroceso normal en rango ({roePct.toFixed(1)}%). Mantener SL.
+                    </span>
+                  ) : (
+                    <span className="font-bold text-rose-400 flex items-center gap-1">
+                      🔴 Presión en contra ({roePct.toFixed(1)}%). Vigilar Stop Loss (${t.stopLoss.toFixed(4)}).
+                    </span>
+                  )}
+                </div>
+
+                {/* LIVE QUANTITATIVE SIGNAL ENGINE CONFLUENCE CHECK FOR THIS OPEN TRADE */}
+                {(() => {
+                  const currentSignal = signals.find((s) => s.symbol === t.symbol);
+                  if (!currentSignal) {
+                    return (
+                      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-900 text-slate-400">
+                        <span>🧠 Motor Cuantitativo:</span>
+                        <span className="font-mono text-slate-400">Analizando mercado en vivo...</span>
+                      </div>
+                    );
+                  }
+
+                  const isSameDirection = currentSignal.direction === t.direction;
+                  const conf = currentSignal.confluence_score;
+
+                  return (
+                    <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-900">
+                      <span className="text-slate-400 font-bold flex items-center gap-1">
+                        🧠 Motor ({conf}/12):
+                      </span>
+                      {isSameDirection && conf >= 7 ? (
+                        <span className="font-bold text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                          ✅ Confluencia a favor ({conf}/12 {currentSignal.direction}) — MANTENER
+                        </span>
+                      ) : !isSameDirection ? (
+                        <span className="font-bold text-rose-300 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
+                          ⚠️ Giro de tendencia detectado ({conf}/12 {currentSignal.direction}) — SUGERIDO CERRAR
+                        </span>
+                      ) : (
+                        <span className="font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                          🟡 Confluencia moderada ({conf}/12) — Vigilar TP1
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* ACTION BUTTONS */}
+              <div className="flex items-center gap-1.5 pt-1">
+                <button
+                  onClick={() => closeTrade(t.id, "CLOSED_MARKET", pnlUsd)}
+                  className={clsx(
+                    "flex-1 rounded-lg py-1.5 text-xs font-black transition-all border shadow-md text-center",
+                    isProfit
+                      ? "bg-emerald-500 text-slate-950 border-emerald-400 hover:bg-emerald-400 shadow-emerald-500/20"
+                      : "bg-rose-500 text-slate-950 border-rose-400 hover:bg-rose-400 shadow-rose-500/20"
+                  )}
+                >
+                  ✕ Cerrar Posición ({isProfit ? "+" : ""}${pnlUsd.toFixed(2)} USD)
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { PositionRiskCalculator } from "@/components/PositionRiskCalculator";
 import { PaperTradingModal } from "@/components/PaperTradingModal";
 import { TradingViewChart } from "@/components/TradingViewChart";
 import { SignalOutcomeBadge } from "@/components/SignalOutcomeBadge";
+import { usePaperTrading, PaperTrade } from "@/hooks/usePaperTrading";
 
 function formatPrice(p: number) {
   if (p >= 1) return `$${p.toLocaleString("en-US", { maximumFractionDigits: 4 })}`;
@@ -276,11 +277,11 @@ function BiasTag({ label, bias, signal }: { label: string; bias: string; signal:
   const calculatedTp1Pct = calculatedSlPct * 1.8;
   const calculatedTp2Pct = calculatedSlPct * 3.2;
 
-  // Capital calculation for 200€ account (2% risk = 4€)
-  const maxRiskEur = 4;
-  const positionSizeEur = maxRiskEur / (calculatedSlPct / 100);
-  const leverage = Math.min(10, signal.leverage);
-  const marginEur = positionSizeEur / leverage;
+  // Capital calculation & user input overrides for trade registration
+  const [customMargin, setCustomMargin] = useState<number>(30);
+  const [customLeverage, setCustomLeverage] = useState<number>(Math.min(10, signal.leverage));
+  const [tradeRegistered, setTradeRegistered] = useState(false);
+  const { balance, openTradeParams, trades, closeTrade } = usePaperTrading();
 
   const entry = signal.entry_price;
   const slPrice = isLong ? entry * (1 - calculatedSlPct / 100) : entry * (1 + calculatedSlPct / 100);
@@ -294,15 +295,34 @@ function BiasTag({ label, bias, signal }: { label: string; bias: string; signal:
       : new Date(signal.created_at.seconds * 1000 + (signal.created_at.nanoseconds || 0) / 1e6);
   const validCreated = !Number.isNaN(createdDate.getTime()) ? createdDate : new Date();
 
-  // Target duration in minutes: 15m -> 25 min, 1h -> 120 min (2h), 4h -> 480 min (8h)
   const durationMinutes = is15m ? 25 : is1h ? 120 : 480;
-  const maxExitMinutes = is15m ? 45 : is1h ? 240 : 1440; // 45 min for 15m, 4h for 1h, 24h for 4h
+  const maxExitMinutes = is15m ? 45 : is1h ? 240 : 1440;
 
   const targetExitTime = new Date(validCreated.getTime() + durationMinutes * 60 * 1000);
   const maxExitTime = new Date(validCreated.getTime() + maxExitMinutes * 60 * 1000);
 
   const formatClock = (d: Date) =>
     d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  const activeTrade = trades.find((t: PaperTrade) => t.signalId === signal.id && t.status === "OPEN");
+
+  const handleRegisterTrade = () => {
+    openTradeParams({
+      symbol: signal.symbol,
+      direction: isLong ? "LONG" : "SHORT",
+      orderType: "MARKET",
+      marginMode: "ISOLATED",
+      entryPrice: entry,
+      marginUsd: customMargin,
+      leverage: customLeverage,
+      slPct: calculatedSlPct,
+      tp1Pct: calculatedTp1Pct,
+      tp2Pct: calculatedTp2Pct,
+      signalId: signal.id,
+    });
+    setTradeRegistered(true);
+    setTimeout(() => setTradeRegistered(false), 3000);
+  };
 
   return (
     <>
@@ -320,17 +340,17 @@ function BiasTag({ label, bias, signal }: { label: string; bias: string; signal:
       </button>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="card w-full max-w-md border border-slate-700 bg-slate-900 p-5 shadow-2xl space-y-4 rounded-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200 overflow-y-auto">
+          <div className="card w-full max-w-md border border-slate-700 bg-slate-900 p-5 shadow-2xl space-y-4 rounded-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <span className="text-lg">⏱️</span>
                 <div>
                   <h3 className="text-sm font-bold text-slate-100">
-                    Plan Operativo &amp; Horario ({label} - {signal.symbol})
+                    Plan Operativo ({label} - {signal.symbol})
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    Sesgo: <strong className={isLong ? "text-emerald-400" : "text-rose-400"}>{bias}</strong>
+                    Saldo Real/Simulado: <strong className="text-emerald-400 font-mono">${balance.toFixed(2)} USDT</strong>
                   </p>
                 </div>
               </div>
@@ -341,6 +361,86 @@ function BiasTag({ label, bias, signal }: { label: string; bias: string; signal:
                 ✕
               </button>
             </div>
+
+            {/* REGISTER TRADE FORM INSIDE MODAL */}
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-2">
+              <span className="text-xs font-bold text-emerald-300 block uppercase tracking-wider">
+                ✍️ Registra tu Entrada Personal
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">Margen Aportado ($)</label>
+                  <input
+                    type="number"
+                    value={customMargin}
+                    onChange={(e) => setCustomMargin(Number(e.target.value))}
+                    className="w-full rounded bg-slate-950 border border-slate-700 px-2 py-1 text-xs text-slate-100 font-mono font-bold focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">Apalancamiento (x)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={customLeverage}
+                    onChange={(e) => setCustomLeverage(Number(e.target.value))}
+                    className="w-full rounded bg-slate-950 border border-slate-700 px-2 py-1 text-xs text-amber-300 font-mono font-bold focus:border-amber-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {!activeTrade ? (
+                <button
+                  onClick={handleRegisterTrade}
+                  className="w-full rounded-lg bg-emerald-500 py-1.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 transition-all shadow-md mt-1"
+                >
+                  🚀 Registrar Orden en mi Cuenta (${customMargin} USDT en {customLeverage}x)
+                </button>
+              ) : (
+                <div className="rounded bg-emerald-500/20 border border-emerald-500/30 p-2 text-center text-xs font-bold text-emerald-300">
+                  ✅ Operación Registrada Activa (${activeTrade.marginUsd} USD a {activeTrade.leverage}x)
+                </div>
+              )}
+
+              {tradeRegistered && (
+                <p className="text-[10px] text-emerald-400 font-medium text-center">
+                  ¡Registrado con éxito! Tu saldo se ha actualizado.
+                </p>
+              )}
+            </div>
+
+            {/* REGISTER WIN OR LOSS CONTROL FOR ACTIVE OR CURRENT TRADE */}
+            {activeTrade && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
+                <span className="text-xs font-bold text-amber-300 block uppercase tracking-wider">
+                  🏁 Marcar Resultado Final (Auto-Aprendizaje Motor)
+                </span>
+                <p className="text-[10px] text-slate-300">
+                  ¿Cómo ha finalizado tu operación? El motor analizará el fallo si marcas pérdida.
+                </p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    onClick={() => closeTrade(activeTrade.id, "CLOSED_TP1")}
+                    className="rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-1.5 text-[10px] font-bold text-emerald-300 hover:bg-emerald-500/30"
+                  >
+                    🟢 Ganada TP1
+                  </button>
+                  <button
+                    onClick={() => closeTrade(activeTrade.id, "CLOSED_TP2")}
+                    className="rounded bg-emerald-500/30 border border-emerald-500/50 px-2 py-1.5 text-[10px] font-bold text-emerald-200 hover:bg-emerald-500/40"
+                  >
+                    🟢 Ganada TP2
+                  </button>
+                  <button
+                    onClick={() => closeTrade(activeTrade.id, "CLOSED_SL")}
+                    className="rounded bg-rose-500/20 border border-rose-500/40 px-2 py-1.5 text-[10px] font-bold text-rose-300 hover:bg-rose-500/30"
+                  >
+                    🔴 Perdida (SL)
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* EXACT HORARY EXIT CARD */}
             <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs space-y-2 shadow-md">
@@ -371,16 +471,6 @@ function BiasTag({ label, bias, signal }: { label: string; bias: string; signal:
               </div>
             </div>
 
-            <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300 space-y-1">
-              <div className="font-bold">Euro Orden (Cuenta de 200 €):</div>
-              <p className="text-sm font-mono font-black text-emerald-200">
-                Gastas: ~${marginEur.toFixed(2)} USDT de margen ({leverage}x)
-              </p>
-              <p className="text-[10px] text-slate-400">
-                Posición Total: ${positionSizeEur.toFixed(2)} USDT · Riesgo máximo: -$4.00 USDT (2%)
-              </p>
-            </div>
-
             <div className="space-y-2 text-xs">
               <div className="flex justify-between items-center rounded-lg bg-slate-950 p-2 border border-slate-800">
                 <span className="text-slate-400 font-bold">Precio de Entrada:</span>
@@ -394,12 +484,12 @@ function BiasTag({ label, bias, signal }: { label: string; bias: string; signal:
 
               <div className="flex justify-between items-center rounded-lg bg-slate-950 p-2 border border-emerald-500/20">
                 <span className="text-emerald-400 font-bold">Take Profit 1 (50%):</span>
-                <span className="font-mono font-bold text-emerald-400">${tp1Price.toFixed(4)} (+${(marginEur * (calculatedTp1Pct / 100) * leverage * 0.5).toFixed(2)})</span>
+                <span className="font-mono font-bold text-emerald-400">${tp1Price.toFixed(4)} (+${(customMargin * (calculatedTp1Pct / 100) * customLeverage * 0.5).toFixed(2)})</span>
               </div>
 
               <div className="flex justify-between items-center rounded-lg bg-slate-950 p-2 border border-emerald-500/20">
                 <span className="text-emerald-300 font-bold">Take Profit 2 (100%):</span>
-                <span className="font-mono font-bold text-emerald-300">${tp2Price.toFixed(4)} (+${(marginEur * (calculatedTp2Pct / 100) * leverage).toFixed(2)})</span>
+                <span className="font-mono font-bold text-emerald-300">${tp2Price.toFixed(4)} (+${(customMargin * (calculatedTp2Pct / 100) * customLeverage).toFixed(2)})</span>
               </div>
             </div>
 
@@ -411,7 +501,7 @@ function BiasTag({ label, bias, signal }: { label: string; bias: string; signal:
               onClick={() => setShowModal(false)}
               className="w-full rounded-xl bg-white/10 py-2 text-xs font-bold text-slate-200 hover:bg-white/20 transition-colors"
             >
-              Entendido
+              Cerrar Ventana
             </button>
           </div>
         </div>

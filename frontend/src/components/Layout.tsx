@@ -6,6 +6,7 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { Toaster, useToast } from "@/components/Toaster";
 import { PwaPrompts } from "@/components/PwaPrompts";
 import { BottomNav } from "@/components/BottomNav";
+import { usePaperTrading } from "@/hooks/usePaperTrading";
 import { useState } from "react";
 
 const NAV = [
@@ -68,6 +69,7 @@ export function Layout() {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
+            <BalanceWidget />
             <button onClick={handleEnablePush} className="btn-ghost hidden sm:inline-flex">
               <BellIcon />
               <span className="hidden md:inline">Activar notificaciones</span>
@@ -203,6 +205,19 @@ function BellIcon() {
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+function BalanceWidget() {
+  const { balance, netPnl } = usePaperTrading();
+  return (
+    <div className="flex items-center gap-1.5 rounded-full bg-slate-900 border border-slate-700/80 px-3 py-1 font-mono text-xs shadow-sm">
+      <span className="text-[10px] text-slate-400 font-sans uppercase font-bold">Saldo:</span>
+      <span className="font-bold text-emerald-400">${balance.toFixed(2)}</span>
+      <span className={clsx("text-[10px] font-bold", netPnl >= 0 ? "text-emerald-300" : "text-rose-400")}>
+        ({netPnl >= 0 ? "+" : ""}${netPnl.toFixed(0)})
+      </span>
+    </div>
   );
 }
 

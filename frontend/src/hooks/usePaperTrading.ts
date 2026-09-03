@@ -102,12 +102,14 @@ export function usePaperTrading() {
           if (cancelled) return;
           if (snap.exists()) {
             const data = snap.data();
-            setAccount({
+            const cloudAccount = {
               balance: typeof data.balance === "number" ? data.balance : INITIAL_BALANCE,
               trades: Array.isArray(data.trades) ? (data.trades as PaperTrade[]) : [],
-            });
+            };
+            setAccount(cloudAccount);
+            persistLocal(cloudAccount); // Mirror cloud account to local storage for offline continuity
           } else {
-            // First time on this account: seed the cloud doc with local data (if any).
+            // First time on this account: seed the cloud doc with local data.
             const local = loadLocal();
             setAccount(local);
             lastPersistedRef.current = accountSignature(local);
@@ -141,6 +143,9 @@ export function usePaperTrading() {
     if (sig === lastPersistedRef.current) return;
     lastPersistedRef.current = sig;
 
+    // Always mirror to localStorage synchronously
+    persistLocal(account);
+
     if (sourceRef.current === "cloud" && uidRef.current) {
       setDoc(
         doc(db, "users", uidRef.current, "paper", "account"),
@@ -149,8 +154,6 @@ export function usePaperTrading() {
         console.warn("[usePaperTrading] write failed:", err.code);
         lastPersistedRef.current = "";
       });
-    } else {
-      persistLocal(account);
     }
   }, [account, ready]);
 
