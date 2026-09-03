@@ -27,6 +27,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---- paper trading account (balance + trades synced across devices) ----
+    match /users/{uid}/paper/{docId} {
+      allow read, write: if isOwner(uid);
+    }
+
     // ---- alerts ----
     match /alerts/{alertId} {
       allow read: if true;

@@ -11,13 +11,14 @@
     "audit": "npm audit"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
     "firebase": "^12.14.0",
+    "nstall": "^0.2.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.17.0",
-    "zustand": "^5.0.14",
-    "clsx": "^2.1.1",
-    "date-fns": "^4.4.0"
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
