@@ -67,11 +67,34 @@ function accountSignature(state: AccountState) {
 export function usePaperTrading() {
   const [account, setAccount] = useState<AccountState>(loadLocal);
   const [ready, setReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"synced" | "syncing" | "local">("local");
 
   const sourceRef = useRef<"local" | "cloud">("local");
   const uidRef = useRef<string | null>(null);
   const lastPersistedRef = useRef<string>("");
   const unsubCloudRef = useRef<(() => void) | null>(null);
+
+  // Immediately push current account state to Firestore
+  const forceSyncToCloud = async (stateOverride?: AccountState) => {
+    const uid = uidRef.current;
+    if (!uid) return false;
+    const state = stateOverride ?? account;
+    setSyncStatus("syncing");
+    try {
+      await setDoc(
+        doc(db, "users", uid, "paper", "account"),
+        { balance: state.balance, trades: state.trades, updated_at: serverTimestamp() }
+      );
+      persistLocal(state);
+      lastPersistedRef.current = accountSignature(state);
+      setSyncStatus("synced");
+      return true;
+    } catch (err: unknown) {
+      console.warn("[usePaperTrading] force sync failed:", err);
+      setSyncStatus("local");
+      return false;
+    }
+  };
 
   // ---- auth + cloud sync subscription ----
   useEffect(() => {
@@ -107,15 +130,20 @@ export function usePaperTrading() {
               trades: Array.isArray(data.trades) ? (data.trades as PaperTrade[]) : [],
             };
             setAccount(cloudAccount);
-            persistLocal(cloudAccount); // Mirror cloud account to local storage for offline continuity
+            persistLocal(cloudAccount);
+            setSyncStatus("synced");
           } else {
-            // First time on this account: seed the cloud doc with local data.
+            // First time on this account or cloud doc missing: seed from local data.
             const local = loadLocal();
             setAccount(local);
             lastPersistedRef.current = accountSignature(local);
-            setDoc(ref, { ...local, updated_at: serverTimestamp() }).catch((err) =>
-              console.warn("[usePaperTrading] seed write failed:", err.code)
-            );
+            setSyncStatus("syncing");
+            setDoc(ref, { ...local, updated_at: serverTimestamp() })
+              .then(() => setSyncStatus("synced"))
+              .catch((err) => {
+                console.warn("[usePaperTrading] seed write failed:", err.code);
+                setSyncStatus("local");
+              });
           }
           sourceRef.current = "cloud";
           setReady(true);
@@ -213,10 +241,35 @@ export function usePaperTrading() {
       createdAt: new Date().toISOString(),
     };
 
-    setAccount((prev) => ({
+    const buildNext = (prev: AccountState): AccountState => ({
       balance: prev.balance - marginUsd,
       trades: [newTrade, ...prev.trades],
-    }));
+    });
+
+    setAccount((prev) => {
+      const next = buildNext(prev);
+      // Immediately push to Firestore without waiting for useEffect
+      const uid = uidRef.current;
+      if (uid) {
+        setSyncStatus("syncing");
+        setDoc(
+          doc(db, "users", uid, "paper", "account"),
+          { balance: next.balance, trades: next.trades, updated_at: serverTimestamp() }
+        )
+          .then(() => {
+            persistLocal(next);
+            setSyncStatus("synced");
+          })
+          .catch((err) => {
+            console.warn("[usePaperTrading] immediate write failed:", err.code);
+            persistLocal(next);
+            setSyncStatus("local");
+          });
+      } else {
+        persistLocal(next);
+      }
+      return next;
+    });
   };
 
   const openTrade = (signal: TradingSignalDoc, marginUsd: number) => {
@@ -295,6 +348,8 @@ export function usePaperTrading() {
     openTradeParams,
     closeTrade,
     resetAccount,
+    forceSyncToCloud,
+    syncStatus,
     winRate,
     netPnl,
   };
