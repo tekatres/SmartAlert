@@ -19,7 +19,7 @@ export function PositionRiskCalculator({ signal, isOpen, onClose }: Props) {
   const defaultLeverage = signal ? Math.min(10, signal.leverage) : 5;
   const defaultDirection = signal ? signal.direction : "LONG";
 
-  const [accountCapital, setAccountCapital] = useState<number>(1000);
+  const [accountCapital, setAccountCapital] = useState<number>(200);
   const [riskPct, setRiskPct] = useState<number>(2); // 2% risk per trade
   const [entryPrice, setEntryPrice] = useState<number>(defaultEntry);
   const [slPct, setSlPct] = useState<number>(defaultSlPct);
@@ -238,9 +238,17 @@ export function PositionRiskCalculator({ signal, isOpen, onClose }: Props) {
               </span>
             )}
           </div>
-          <p className="text-[11px] text-slate-400 leading-tight">
-            💡 El tamaño de tu posición se calcula automáticamente según la volatilidad del mercado (ATR 1.5x SL), asegurando que tu riesgo financiero máximo no supere el <strong>{riskPct}% (${maxRiskUsd.toFixed(2)} USD)</strong> sin importar la volatilidad actual.
-          </p>
+          <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300 space-y-1">
+            <div className="font-bold flex items-center justify-between">
+              <span>🎯 Orden Exacta Recomendada para tu Cuenta de 200 €:</span>
+              <span className="font-mono bg-emerald-500/20 px-2 py-0.5 rounded text-[11px] text-emerald-200">
+                Margen a usar: ~${marginRequiredUsdt.toFixed(2)} USDT
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-normal">
+              Entras con un <strong>margen de ${marginRequiredUsdt.toFixed(2)} USDT</strong> ({leverage}x Apalancamiento Aislado). Tu posición total será de <strong>${positionSizeUsdt.toFixed(2)} USDT</strong>. Si salta el Stop Loss a ${calculatedSlPrice.toFixed(4)}, solo perderás el 2% de tu cuenta (<strong>-${maxRiskUsd.toFixed(2)} USDT</strong>).
+            </p>
+          </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg bg-slate-900/90 p-2.5 border border-slate-800">

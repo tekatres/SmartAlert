@@ -67,21 +67,22 @@ export default function DashboardPage() {
   }, [user, navigate]);
 
   // -------------------------------------------------------
-  // AUTO-SCAN LOGIC
+  // UNIFIED SCAN LOGIC (Used by auto-timer AND manual button)
   // -------------------------------------------------------
-  const runAutoScan = async () => {
+  const runMarketScan = async (minThreshold = 6) => {
+    if (autoScanStatus === "scanning") return;
     setAutoScanStatus("scanning");
     try {
-      await scanLiveMarket(6);
+      await scanLiveMarket(minThreshold);
       const isoNow = new Date().toISOString();
       localStorage.setItem(LAST_SCAN_KEY, isoNow);
       const displayTime = new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
       setLastScanTime(displayTime);
     } catch {
-      // Silent fail — user can retry manually via banner button
+      // Silent fail — user can retry manually
     } finally {
       setAutoScanStatus("done");
-      setTimeout(() => setAutoScanStatus("idle"), 3000);
+      setTimeout(() => setAutoScanStatus("idle"), 4000);
     }
   };
 
@@ -96,10 +97,10 @@ export default function DashboardPage() {
 
     if (shouldScan) {
       // Small delay so Firestore subscription is ready first
-      const initialTimer = setTimeout(() => runAutoScan(), 1500);
+      const initialTimer = setTimeout(() => runMarketScan(6), 1500);
 
       // Schedule recurring scans every 4 hours
-      scanTimerRef.current = setInterval(() => runAutoScan(), AUTO_SCAN_INTERVAL_MS);
+      scanTimerRef.current = setInterval(() => runMarketScan(6), AUTO_SCAN_INTERVAL_MS);
 
       return () => {
         clearTimeout(initialTimer);
@@ -110,8 +111,8 @@ export default function DashboardPage() {
       const nextScanIn = AUTO_SCAN_INTERVAL_MS - elapsed;
 
       const nextTimer = setTimeout(() => {
-        runAutoScan();
-        scanTimerRef.current = setInterval(() => runAutoScan(), AUTO_SCAN_INTERVAL_MS);
+        runMarketScan(6);
+        scanTimerRef.current = setInterval(() => runMarketScan(6), AUTO_SCAN_INTERVAL_MS);
       }, nextScanIn);
 
       return () => {
@@ -146,31 +147,33 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-black tracking-tight text-slate-100">
             Bienvenido, {user?.displayName?.split(" ")[0] || "trader"} 👋
           </h1>
-          <div className="flex items-center gap-3 mt-1">
+          <div className="flex flex-wrap items-center gap-2 mt-1">
             <p className="text-xs text-slate-400">
-              SmartAlert Futures · 20 pares · Motor de 7 Pilares
+              SmartAlert Futures · 20 pares · Motor de Confluencia (7+/12)
             </p>
-            {/* Auto-scan status badge */}
+            {/* Unified scan status badge & trigger */}
             {autoScanStatus === "scanning" && (
-              <span className="flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300">
-                <span className="animate-spin">🔄</span> Escaneando 20 pares...
+              <span className="flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 text-[10px] font-bold text-amber-300">
+                <span className="animate-spin">🔄</span> Escaneando mercado cuantitativo...
               </span>
             )}
             {autoScanStatus === "done" && (
-              <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+              <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[10px] font-bold text-emerald-300">
                 ✅ Mercado actualizado
               </span>
             )}
-            {autoScanStatus === "idle" && lastScanTime && (
-              <span className="flex items-center gap-1 rounded-full bg-slate-800/80 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-slate-400">
-                🕐 Último escaneo: <strong className="text-slate-300">{lastScanTime}</strong>
-                &nbsp;· Próximo en ~4h
-              </span>
-            )}
-            {autoScanStatus === "idle" && !lastScanTime && (
-              <span className="text-[10px] text-slate-500 font-mono">
-                Sin escaneos previos · Iniciando en breve...
-              </span>
+            {autoScanStatus === "idle" && (
+              <button
+                onClick={() => runMarketScan(6)}
+                className="flex items-center gap-1.5 rounded-full bg-slate-800/90 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500/40 px-2.5 py-0.5 text-[10px] font-mono text-slate-300 transition-all shadow-sm group"
+                title="Haz clic para forzar un nuevo escaneo en vivo"
+              >
+                <span>🕐 Escaneo: <strong className="text-slate-200">{lastScanTime || "Sin datos"}</strong></span>
+                <span className="text-slate-500">·</span>
+                <span className="text-emerald-400 font-bold group-hover:underline flex items-center gap-0.5">
+                  🔄 Analizar Mercado
+                </span>
+              </button>
             )}
           </div>
         </div>
@@ -278,7 +281,11 @@ export default function DashboardPage() {
       )}
 
       {/* ---- DAILY BANNER ---- */}
-      <DailyOpportunityBanner signals={signals} />
+      <DailyOpportunityBanner
+        signals={signals}
+        onScan={runMarketScan}
+        isScanning={autoScanStatus === "scanning"}
+      />
 
       {/* ---- VIEWS ---- */}
       {viewMode === "sim" ? (

@@ -575,19 +575,28 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       const bias_1h = `${dir1h} ${rating1h}/10`;
       const bias_4h = `${dir4h} ${rating4h}/10`;
 
-      // ── MULTI-TIMEFRAME ALIGNMENT GUARD ─────────────────────────────────────
-      // Rule: If 15m and 4h are BOTH opposing the trade direction (e.g. trade SHORT, but 15m & 4h are LONG),
-      // DO NOT allow ALTA CONFLUENCIA (cap score at 8 max and flag conflict).
+      // ── STRICT INSTITUTIONAL TREND FILTERS (PREVENTS COUNTER-TREND LOSSES) ──
+      // Rule 1: NEVER enter a LONG if price is below EMA200 (bearish regime) or 4h is SHORT
+      const isCounterTrendLong = direction === "LONG" && (!aboveEma200 || dir4h === "SHORT");
+      // Rule 2: NEVER enter a SHORT if price is above EMA200 (bullish regime) or 4h is LONG
+      const isCounterTrendShort = direction === "SHORT" && (aboveEma200 || dir4h === "LONG");
+
       const opposes15mAnd4h = (direction === "SHORT" && dir15m === "LONG" && dir4h === "LONG") ||
                               (direction === "LONG" && dir15m === "SHORT" && dir4h === "SHORT");
 
       let effectiveConfluence = confluenceScore;
-      if (opposes15mAnd4h && effectiveConfluence >= 9) {
+      if (isCounterTrendLong || isCounterTrendShort) {
+        effectiveConfluence = Math.min(5, effectiveConfluence - 3); // Heavily penalize counter-trend trades
+      } else if (opposes15mAnd4h && effectiveConfluence >= 9) {
         effectiveConfluence = 8; // Demote from High to Medium Confluence due to timeframe contradiction
       }
 
       let signalTypeLabel = "";
-      if (effectiveConfluence >= 9 && !opposes15mAnd4h) {
+      if (isCounterTrendLong) {
+        signalTypeLabel = `LONG Descartado (Tendencia General Bajista / Bajo EMA200)`;
+      } else if (isCounterTrendShort) {
+        signalTypeLabel = `SHORT Descartado (Tendencia General Alcista / Sobre EMA200)`;
+      } else if (effectiveConfluence >= 9 && !opposes15mAnd4h) {
         signalTypeLabel = `${direction} Alta Confluencia (9-12/12 — Señal Fuerte)`;
       } else if (effectiveConfluence >= 7) {
         signalTypeLabel = opposes15mAnd4h

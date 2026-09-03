@@ -2,17 +2,36 @@ import { useState } from "react";
 import { clsx } from "clsx";
 import { TradingSignalDoc } from "@/types";
 import { PositionRiskCalculator } from "@/components/PositionRiskCalculator";
+import { TradingViewChart } from "@/components/TradingViewChart";
 import { scanLiveMarket } from "@/services/liveScanner";
 
-export function DailyOpportunityBanner({ signals }: { signals: TradingSignalDoc[] }) {
+export function DailyOpportunityBanner({
+  signals,
+  onScan,
+  isScanning: isScanningProp = false,
+}: {
+  signals: TradingSignalDoc[];
+  onScan?: (minThreshold?: number) => Promise<void>;
+  isScanning?: boolean;
+}) {
   const [showCalculator, setShowCalculator] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
+  const [localScanning, setLocalScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showChart, setShowChart] = useState(false);
+
+  const isScanning = isScanningProp || localScanning;
 
   const handleLiveScan = async (minThreshold = 6) => {
-    setIsScanning(true);
     setScanMessage(null);
+    if (onScan) {
+      await onScan(minThreshold);
+      setScanMessage(`✅ Mercado analizado en vivo a las ${new Date().toLocaleTimeString("es-ES")}.`);
+      setTimeout(() => setScanMessage(null), 5000);
+      return;
+    }
+
+    setLocalScanning(true);
     try {
       const result = await scanLiveMarket(minThreshold);
       setScanMessage(
@@ -21,7 +40,7 @@ export function DailyOpportunityBanner({ signals }: { signals: TradingSignalDoc[
     } catch (err) {
       setScanMessage("❌ Error al conectar con Binance Futures.");
     } finally {
-      setIsScanning(false);
+      setLocalScanning(false);
       setTimeout(() => setScanMessage(null), 5000);
     }
   };
@@ -165,11 +184,22 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
 
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => handleLiveScan(6)}
-            disabled={isScanning}
-            className="flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+            onClick={() => setShowChart(!showChart)}
+            className={clsx(
+              "flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold transition-all shadow-md",
+              showChart
+                ? "bg-amber-500 text-slate-950 shadow-amber-500/20"
+                : "bg-white/10 text-slate-100 hover:bg-white/20"
+            )}
           >
-            {isScanning ? <span className="animate-spin">🔄</span> : "🔄 Analizar Mercado"}
+            📊 {showChart ? "Ocultar Gráfica" : "Ver Gráfica en Vivo"}
+          </button>
+
+          <button
+            onClick={() => setShowCalculator(true)}
+            className="flex items-center gap-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 px-4 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/30 transition-all"
+          >
+            🧮 Riesgo para tus 200€
           </button>
 
           <button
@@ -183,12 +213,33 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
             href={krakenUrl}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-1.5 rounded-xl bg-slate-950 border border-slate-700 px-4 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800 transition-all"
+            className="flex items-center gap-1.5 rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800 transition-all"
           >
             🏛️ Kraken ↗
           </a>
+
+          <button
+            onClick={() => handleLiveScan(6)}
+            disabled={isScanning}
+            className="flex items-center gap-2 rounded-xl bg-slate-800 border border-slate-700 px-3.5 py-2 text-xs font-bold text-slate-300 hover:bg-slate-700 transition-all disabled:opacity-50"
+          >
+            {isScanning ? <span className="animate-spin">🔄</span> : "🔄 Re-escaneo"}
+          </button>
         </div>
       </div>
+
+      {/* Collapsible Live TradingView Chart */}
+      {showChart && (
+        <div className="rounded-xl border border-slate-800 bg-slate-950 p-2 shadow-2xl animate-in fade-in zoom-in duration-200">
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/80 mb-2">
+            <span className="text-xs font-bold text-slate-300 flex items-center gap-2">
+              📈 Velas de {topSignal.symbol} (Binance Futures)
+            </span>
+            <span className="text-[10px] text-slate-500">Intervalo: 1 hora</span>
+          </div>
+          <TradingViewChart symbol={topSignal.symbol} height={360} interval="60" />
+        </div>
+      )}
 
       {/* ACTION PLAN 4-STEP GRID */}
       <div className="space-y-3">
@@ -198,15 +249,18 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* STEP 1 */}
-          <div className="rounded-xl border border-slate-800 bg-slate-950/90 p-4 space-y-1">
+          <div className="rounded-xl border border-emerald-500/30 bg-slate-950/90 p-4 space-y-1.5 shadow-lg">
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
-              Paso 1: Abrir Orden
+              Paso 1: Abrir Orden (Margen Recomendado)
             </span>
+            <div className="rounded bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 text-xs font-mono font-bold text-emerald-300">
+              💶 Entrar con: ~${((4 / (topSignal.sl_pct / 100)) / cappedLeverage).toFixed(2)} USDT <span className="text-[10px] font-sans text-emerald-400/80">(de tus 200€)</span>
+            </div>
             <p className="text-xs font-bold text-slate-100">
               {isLong ? "Comprar (LONG)" : "Vender (SHORT)"} en <span className="font-mono text-amber-300">${topSignal.entry_price}</span>
             </p>
             <p className="text-[11px] text-slate-400">
-              Modo <strong className="text-slate-200">Aislado</strong> · Apalancamiento <strong className="text-amber-300">{cappedLeverage}x</strong> <span className="text-slate-500">(máx. 10x)</span>.
+              Modo <strong className="text-slate-200">Aislado</strong> · Apalancamiento <strong className="text-amber-300">{cappedLeverage}x</strong>.
             </p>
           </div>
 

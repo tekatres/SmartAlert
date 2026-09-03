@@ -80,10 +80,14 @@ class RSIResult(NamedTuple):
     value: float          # 0-100
     is_oversold: bool     # < 30
     is_overbought: bool   # > 70
+    is_near_oversold: bool   # 30-40 — pre-señal alcista
+    is_near_overbought: bool  # 60-70 — pre-señal bajista
+    divergence_bullish: bool  # precio hace mínimo más bajo pero RSI no → reversión alcista
+    divergence_bearish: bool  # precio hace máximo más alto pero RSI no → reversión bajista
 
 
 def rsi(candles: List[Candle], period: int = 14) -> Optional[RSIResult]:
-    """Compute RSI using Wilder's smoothing method."""
+    """Compute RSI using Wilder's smoothing method with divergence detection."""
     closes = _closes(candles)
     if len(closes) < period + 1:
         return None
@@ -96,21 +100,55 @@ def rsi(candles: List[Candle], period: int = 14) -> Optional[RSIResult]:
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
 
-    # Wilder smoothing for remaining values
+    # Wilder smoothing — build full RSI series for divergence detection
+    rsi_series: List[float] = []
+    # Seed value
+    if avg_loss == 0:
+        rsi_series.append(100.0)
+    else:
+        rs = avg_gain / avg_loss
+        rsi_series.append(100.0 - (100.0 / (1.0 + rs)))
+
     for i in range(period, len(gains)):
         avg_gain = (avg_gain * (period - 1) + gains[i]) / period
         avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        if avg_loss == 0:
+            rsi_series.append(100.0)
+        else:
+            rs = avg_gain / avg_loss
+            rsi_series.append(100.0 - (100.0 / (1.0 + rs)))
 
-    if avg_loss == 0:
-        value = 100.0
-    else:
-        rs = avg_gain / avg_loss
-        value = 100.0 - (100.0 / (1.0 + rs))
+    value = rsi_series[-1]
+
+    # Divergence detection: compare last 2 swing lows/highs (price vs RSI)
+    # Use last 10 candles to find recent price extremes vs RSI extremes
+    div_bullish = False
+    div_bearish = False
+    lookback = min(20, len(closes) - 1, len(rsi_series) - 1)
+    if lookback >= 10:
+        recent_closes = closes[-lookback:]
+        recent_rsi = rsi_series[-lookback:]
+        # Bullish divergence: price makes lower low but RSI makes higher low
+        price_low_1 = min(recent_closes[:lookback // 2])
+        price_low_2 = min(recent_closes[lookback // 2:])
+        rsi_low_1 = min(recent_rsi[:lookback // 2])
+        rsi_low_2 = min(recent_rsi[lookback // 2:])
+        div_bullish = (price_low_2 < price_low_1 and rsi_low_2 > rsi_low_1 and value < 50)
+        # Bearish divergence: price makes higher high but RSI makes lower high
+        price_high_1 = max(recent_closes[:lookback // 2])
+        price_high_2 = max(recent_closes[lookback // 2:])
+        rsi_high_1 = max(recent_rsi[:lookback // 2])
+        rsi_high_2 = max(recent_rsi[lookback // 2:])
+        div_bearish = (price_high_2 > price_high_1 and rsi_high_2 < rsi_high_1 and value > 50)
 
     return RSIResult(
         value=round(value, 2),
         is_oversold=value < 30,
         is_overbought=value > 70,
+        is_near_oversold=(30 <= value < 40),
+        is_near_overbought=(60 < value <= 70),
+        divergence_bullish=div_bullish,
+        divergence_bearish=div_bearish,
     )
 
 
@@ -125,6 +163,7 @@ class MACDResult(NamedTuple):
     is_bullish_cross: bool   # macd just crossed above signal
     is_bearish_cross: bool   # macd just crossed below signal
     histogram_rising: bool   # histogram increasing (momentum building)
+    histogram_significant: bool  # abs(histogram) > 0.05% of price — filters ghost votes
 
 
 def macd(
@@ -168,6 +207,13 @@ def macd(
     prev_signal = valid_signal[-2] if len(valid_signal) >= 2 else signal_val
     prev_hist = prev_macd - prev_signal
 
+    # Histogram significance: must be > 0.05% of MACD line magnitude to avoid ghost votes
+    # Use the slow EMA as a price proxy for relative magnitude
+    valid_slow = [v for v in slow_ema if not math.isnan(v)]
+    price_proxy = abs(valid_slow[-1]) if valid_slow else 1.0
+    hist_pct = (abs(hist) / price_proxy * 100.0) if price_proxy > 0 else 0.0
+    significant = hist_pct > 0.01  # > 0.01% of slow EMA value
+
     return MACDResult(
         macd_line=round(macd_val, 6),
         signal_line=round(signal_val, 6),
@@ -175,6 +221,7 @@ def macd(
         is_bullish_cross=(prev_macd < prev_signal and macd_val >= signal_val),
         is_bearish_cross=(prev_macd > prev_signal and macd_val <= signal_val),
         histogram_rising=(hist > prev_hist),
+        histogram_significant=significant,
     )
 
 
@@ -498,10 +545,16 @@ def obv(candles: List[Candle]) -> Optional[OBVResult]:
     price_change = closes[-1] - closes[-window]
     obv_change = obv_series[-1] - obv_series[-window]
 
+    # Neutral zone: slope is insignificant relative to the OBV magnitude
+    obv_magnitude = abs(obv_series[-1]) if obv_series[-1] != 0 else 1.0
+    slope_threshold = obv_magnitude * 0.005  # 0.5% of current OBV value
+    is_rising_meaningful = slope > slope_threshold
+    is_falling_meaningful = slope < -slope_threshold
+
     return OBVResult(
         current=round(obv_series[-1], 2),
         slope=round(slope, 4),
-        is_rising=slope > 0,
+        is_rising=is_rising_meaningful,
         divergence_bullish=(price_change < 0 and obv_change > 0),
         divergence_bearish=(price_change > 0 and obv_change < 0),
     )
@@ -592,10 +645,15 @@ def cvd(candles: List[Candle]) -> Optional[CVDResult]:
     price_change = closes[-1] - closes[-window]
     cvd_change = cvd_series[-1] - cvd_series[-window]
 
+    # Neutral zone: slope insignificant relative to CVD magnitude
+    cvd_magnitude = abs(cvd_series[-1]) if cvd_series[-1] != 0 else 1.0
+    slope_threshold = cvd_magnitude * 0.005  # 0.5% of current CVD value
+    is_rising_meaningful = slope > slope_threshold
+
     return CVDResult(
         cumulative=round(cvd_series[-1], 2),
         slope=round(slope, 4),
-        is_rising=slope > 0,
+        is_rising=is_rising_meaningful,
         divergence_bullish=(price_change < 0 and cvd_change > 0),
         divergence_bearish=(price_change > 0 and cvd_change < 0),
     )
@@ -670,6 +728,26 @@ def ema_cross(candles: List[Candle]) -> Optional[EMACrossResult]:
 
 
 # ---------------------------------------------------------------------------
+# Volume ratio: current vs recent average (volume confirmation gate)
+# ---------------------------------------------------------------------------
+
+def volume_ratio(candles: List[Candle], lookback: int = 20) -> Optional[float]:
+    """Ratio of current candle volume vs average of last `lookback` candles.
+
+    Returns > 1.0 when volume is above average (confirms moves).
+    Returns None when there's not enough data.
+    """
+    if len(candles) < lookback + 1:
+        return None
+    recent_volumes = [c.volume for c in candles[-(lookback + 1):-1]]
+    avg_vol = sum(recent_volumes) / len(recent_volumes)
+    if avg_vol <= 0:
+        return None
+    current_vol = candles[-1].volume
+    return round(current_vol / avg_vol, 4)
+
+
+# ---------------------------------------------------------------------------
 # Convenience: compute all indicators at once
 # ---------------------------------------------------------------------------
 
@@ -687,6 +765,8 @@ class AllIndicators(NamedTuple):
     vwap_1h: Optional[VWAPResult]
     cvd_1h: Optional[CVDResult]
     ema_cross_1h: Optional[EMACrossResult]
+    volume_ratio_1h: Optional[float]    # current vol vs 20-period avg (confirmation gate)
+    volume_ratio_15m: Optional[float]   # same for 15m (entry timing)
 
 
 def compute_all(
@@ -709,4 +789,6 @@ def compute_all(
         vwap_1h=vwap(candles_1h),
         cvd_1h=cvd(candles_1h),
         ema_cross_1h=ema_cross(candles_1h),
+        volume_ratio_1h=volume_ratio(candles_1h),
+        volume_ratio_15m=volume_ratio(candles_15m),
     )

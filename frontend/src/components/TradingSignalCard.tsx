@@ -129,8 +129,13 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
           </header>
 
           {/* Trade levels */}
-          <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-4 rounded-lg bg-slate-950/60 p-2.5 sm:p-3 border border-slate-800/80">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-5 rounded-lg bg-slate-950/60 p-2.5 sm:p-3 border border-slate-800/80">
             <Stat label="Entrada" value={formatPrice(signal.entry_price)} />
+            <Stat
+              label="Margen (200€)"
+              value={`~$${((4 / (signal.sl_pct / 100)) / Math.min(10, signal.leverage)).toFixed(1)}`}
+              tone="text-amber-300 font-bold"
+            />
             <Stat
               label="Stop-Loss"
               value={`-${signal.sl_pct.toFixed(2)}%`}
@@ -162,9 +167,9 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
               <span className="rounded bg-white/5 px-2 py-0.5 text-xs text-slate-300 font-mono">
                 R:R {signal.risk_reward.toFixed(2)}
               </span>
-              <BiasTag label="15m" bias={signal.bias_15m} />
-              <BiasTag label="1h" bias={signal.bias_1h} />
-              <BiasTag label="4h" bias={signal.bias_4h} />
+              <BiasTag label="15m" bias={signal.bias_15m} signal={signal} />
+              <BiasTag label="1h" bias={signal.bias_1h} signal={signal} />
+              <BiasTag label="4h" bias={signal.bias_4h} signal={signal} />
             </div>
 
             {/* Action buttons — 3-col grid on mobile, inline on sm+ */}
@@ -254,16 +259,163 @@ function Stat({
   );
 }
 
-function BiasTag({ label, bias }: { label: string; bias: string }) {
+function BiasTag({ label, bias, signal }: { label: string; bias: string; signal: TradingSignalDoc }) {
+  const [showModal, setShowModal] = useState(false);
   const isLong = bias.includes("LONG");
   const color = isLong
-    ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
-    : "bg-rose-500/10 text-rose-300 border-rose-500/25";
+    ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20"
+    : "bg-rose-500/10 text-rose-300 border-rose-500/30 hover:bg-rose-500/20";
+
+  // Calculate parameters for this timeframe
+  const is15m = label.includes("15m") || label.includes("15");
+  const is1h = label.includes("1h");
+
+  // Timeframe specific multipliers for SL and TP
+  const slFactor = is15m ? 0.6 : is1h ? 1.0 : 1.5; // 15m tighter SL, 4h wider SL
+  const calculatedSlPct = Math.max(0.8, signal.sl_pct * slFactor);
+  const calculatedTp1Pct = calculatedSlPct * 1.8;
+  const calculatedTp2Pct = calculatedSlPct * 3.2;
+
+  // Capital calculation for 200€ account (2% risk = 4€)
+  const maxRiskEur = 4;
+  const positionSizeEur = maxRiskEur / (calculatedSlPct / 100);
+  const leverage = Math.min(10, signal.leverage);
+  const marginEur = positionSizeEur / leverage;
+
+  const entry = signal.entry_price;
+  const slPrice = isLong ? entry * (1 - calculatedSlPct / 100) : entry * (1 + calculatedSlPct / 100);
+  const tp1Price = isLong ? entry * (1 + calculatedTp1Pct / 100) : entry * (1 - calculatedTp1Pct / 100);
+  const tp2Price = isLong ? entry * (1 + calculatedTp2Pct / 100) : entry * (1 - calculatedTp2Pct / 100);
+
+  // Exact timestamp calculations
+  const createdDate =
+    typeof signal.created_at === "string"
+      ? new Date(signal.created_at)
+      : new Date(signal.created_at.seconds * 1000 + (signal.created_at.nanoseconds || 0) / 1e6);
+  const validCreated = !Number.isNaN(createdDate.getTime()) ? createdDate : new Date();
+
+  // Target duration in minutes: 15m -> 25 min, 1h -> 120 min (2h), 4h -> 480 min (8h)
+  const durationMinutes = is15m ? 25 : is1h ? 120 : 480;
+  const maxExitMinutes = is15m ? 45 : is1h ? 240 : 1440; // 45 min for 15m, 4h for 1h, 24h for 4h
+
+  const targetExitTime = new Date(validCreated.getTime() + durationMinutes * 60 * 1000);
+  const maxExitTime = new Date(validCreated.getTime() + maxExitMinutes * 60 * 1000);
+
+  const formatClock = (d: Date) =>
+    d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
   return (
-    <span className={clsx("rounded-md border px-2 py-0.5 text-xs font-mono font-bold inline-flex items-center gap-1", color)}>
-      <span className="text-[10px] text-slate-400 font-sans uppercase font-bold">{label}:</span>
-      <span>{bias}</span>
-    </span>
+    <>
+      <button
+        onClick={() => setShowModal(true)}
+        className={clsx(
+          "rounded-md border px-2 py-0.5 text-xs font-mono font-bold inline-flex items-center gap-1 transition-all cursor-pointer shadow-sm group",
+          color
+        )}
+        title={`Haz clic para ver plan operativo de ${label}`}
+      >
+        <span className="text-[10px] text-slate-400 font-sans uppercase font-bold">{label}:</span>
+        <span>{bias}</span>
+        <span className="text-[9px] opacity-60 group-hover:opacity-100">🔍</span>
+      </button>
+
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="card w-full max-w-md border border-slate-700 bg-slate-900 p-5 shadow-2xl space-y-4 rounded-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">⏱️</span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">
+                    Plan Operativo &amp; Horario ({label} - {signal.symbol})
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Sesgo: <strong className={isLong ? "text-emerald-400" : "text-rose-400"}>{bias}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-slate-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* EXACT HORARY EXIT CARD */}
+            <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs space-y-2 shadow-md">
+              <div className="font-bold text-amber-300 flex items-center justify-between border-b border-amber-500/20 pb-1.5">
+                <span>⚡ CRONOGRAMA DE OPERACIÓN:</span>
+                <span className="text-[10px] font-mono bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-200">
+                  Entrada AHORA → Cierre en {durationMinutes} min
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center bg-slate-950/90 px-3 py-1.5 rounded border border-emerald-500/30 font-mono text-[11px]">
+                <span className="text-emerald-400 font-sans font-bold">🟢 HORA DE ENTRADA (ABRIR AHORA):</span>
+                <span className="text-slate-100 font-bold">{formatClock(validCreated)}</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
+                <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                  <span className="text-slate-500 block text-[9px] font-sans uppercase font-bold">🎯 Hora Salida TP1 (Estimada)</span>
+                  <span className="text-emerald-300 font-bold text-xs">{formatClock(targetExitTime)}</span>
+                  <span className="text-[9px] text-slate-400 block font-sans">(~{durationMinutes} min tras entrar)</span>
+                </div>
+
+                <div className="bg-slate-950/80 p-2 rounded border border-slate-800">
+                  <span className="text-slate-500 block text-[9px] font-sans uppercase font-bold">🛑 Hora Salida Máx. (Incondicional)</span>
+                  <span className="text-rose-400 font-bold text-xs">{formatClock(maxExitTime)}</span>
+                  <span className="text-[9px] text-slate-400 block font-sans">(Cierra si no tocó TP1)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-300 space-y-1">
+              <div className="font-bold">Euro Orden (Cuenta de 200 €):</div>
+              <p className="text-sm font-mono font-black text-emerald-200">
+                Gastas: ~${marginEur.toFixed(2)} USDT de margen ({leverage}x)
+              </p>
+              <p className="text-[10px] text-slate-400">
+                Posición Total: ${positionSizeEur.toFixed(2)} USDT · Riesgo máximo: -$4.00 USDT (2%)
+              </p>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between items-center rounded-lg bg-slate-950 p-2 border border-slate-800">
+                <span className="text-slate-400 font-bold">Precio de Entrada:</span>
+                <span className="font-mono font-bold text-slate-100">${entry.toFixed(4)}</span>
+              </div>
+
+              <div className="flex justify-between items-center rounded-lg bg-slate-950 p-2 border border-rose-500/20">
+                <span className="text-rose-400 font-bold">Stop Loss ({calculatedSlPct.toFixed(1)}%):</span>
+                <span className="font-mono font-bold text-rose-400">${slPrice.toFixed(4)}</span>
+              </div>
+
+              <div className="flex justify-between items-center rounded-lg bg-slate-950 p-2 border border-emerald-500/20">
+                <span className="text-emerald-400 font-bold">Take Profit 1 (50%):</span>
+                <span className="font-mono font-bold text-emerald-400">${tp1Price.toFixed(4)} (+${(marginEur * (calculatedTp1Pct / 100) * leverage * 0.5).toFixed(2)})</span>
+              </div>
+
+              <div className="flex justify-between items-center rounded-lg bg-slate-950 p-2 border border-emerald-500/20">
+                <span className="text-emerald-300 font-bold">Take Profit 2 (100%):</span>
+                <span className="font-mono font-bold text-emerald-300">${tp2Price.toFixed(4)} (+${(marginEur * (calculatedTp2Pct / 100) * leverage).toFixed(2)})</span>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-400 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800">
+              💡 <strong>Regla de Salida a las {formatClock(maxExitTime)}:</strong> {is15m ? `En scalping de 15m no te quedes atascado. A las ${formatClock(maxExitTime)} (máximo 45 min), si el mercado no ha llegado a TP1, cierra la operación manualmente a mercado.` : `En ${label}, si a las ${formatClock(maxExitTime)} no ha llegado a TP1, cierra para liberar el margen.`}
+            </div>
+
+            <button
+              onClick={() => setShowModal(false)}
+              className="w-full rounded-xl bg-white/10 py-2 text-xs font-bold text-slate-200 hover:bg-white/20 transition-colors"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
-
