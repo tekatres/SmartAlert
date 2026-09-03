@@ -13,7 +13,9 @@ export function useSignalSetupStats(signalType?: string) {
       setLoading(false);
       return;
     }
-    const ref = doc(db, "signal_stats", `setup_${signalType}`);
+    // Firestore doc IDs cannot contain '/' because '/' separates collection/document segments
+    const safeDocId = `setup_${signalType.replace(/\//g, "_")}`;
+    const ref = doc(db, "signal_stats", safeDocId);
     const unsub = onSnapshot(
       ref,
       (snap) => {

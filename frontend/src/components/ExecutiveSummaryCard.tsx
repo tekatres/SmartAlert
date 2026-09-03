@@ -3,9 +3,15 @@ import { clsx } from "clsx";
 
 export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
   const isLong = signal.direction === "LONG";
-  const score = signal.confluence_score;
+  const score = signal.confluence_score ?? 0;
   const hasConflict = (signal as any).timeframe_conflict === true;
 
+  // Defensive fallbacks for numeric fields that may be missing on old signals
+  const entryPrice   = signal.entry_price   ?? 0;
+  const stopLoss     = signal.stop_loss     ?? 0;
+  const tp1Price     = signal.take_profit_1 ?? 0;
+  const slPct        = signal.sl_pct        ?? 0;
+  const tp1Pct       = signal.tp1_pct       ?? 0;
   // Simple verdict logic
   let actionStatus = "ENTRAR AHORA";
   let actionBg = "bg-emerald-500/10 border-emerald-500/30 text-emerald-300";
@@ -73,7 +79,7 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
             1. Precio de Entrada Recomendado
           </span>
           <span className="block font-mono text-xl font-black text-slate-100">
-            ${signal.entry_price.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+            ${entryPrice.toLocaleString("en-US", { maximumFractionDigits: 4 })}
           </span>
           <span className="block text-[10px] text-slate-500">
             Punto óptimo para colocar la orden
@@ -86,10 +92,10 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
             2. Meta de Ganancia (TP1)
           </span>
           <span className="block font-mono text-xl font-black text-emerald-300">
-            ${signal.take_profit_1.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+            ${tp1Price.toLocaleString("en-US", { maximumFractionDigits: 4 })}
           </span>
           <span className="block text-[10px] font-bold text-emerald-400">
-            +{signal.tp1_pct.toFixed(1)}% de rendimiento directo
+            +{tp1Pct.toFixed(1)}% de rendimiento directo
           </span>
         </div>
 
@@ -99,10 +105,10 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
             3. Límite de Pérdida (Stop Loss)
           </span>
           <span className="block font-mono text-xl font-black text-rose-400">
-            ${signal.stop_loss.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+            ${stopLoss.toLocaleString("en-US", { maximumFractionDigits: 4 })}
           </span>
           <span className="block text-[10px] font-bold text-rose-400">
-            Máxima pérdida protegida: -{signal.sl_pct.toFixed(1)}%
+            Máxima pérdida protegida: -{slPct.toFixed(1)}%
           </span>
         </div>
       </div>

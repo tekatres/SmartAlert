@@ -48,17 +48,17 @@ function Check({ label, pass, value, tip }: CheckResult) {
 
 export function SignalDecisionGuide({ signal, sentimentValue = 50 }: Props) {
   const isLong = signal.direction === "LONG";
-  const score = signal.confluence_score;
-  const total = signal.confluence_total;
+  const score = signal.confluence_score ?? 0;
+  const total = signal.confluence_total ?? 12;
   const hasConflict = (signal as any).timeframe_conflict === true;
-  const rr = signal.risk_reward;
+  const rr = signal.risk_reward ?? 0;
 
   // Parse timeframe biases
   const bias15m = ((signal as any).bias_15m || "NEUTRAL").split(" ")[0] as string;
   const bias1h = ((signal as any).bias_1h || "NEUTRAL").split(" ")[0] as string;
   const bias4h = ((signal as any).bias_4h || "NEUTRAL").split(" ")[0] as string;
 
-  const dir = signal.direction;
+  const dir = signal.direction || "LONG";
   const aligned15m = bias15m === dir;
   const aligned1h = bias1h === dir;
   const aligned4h = bias4h === dir;
@@ -137,13 +137,13 @@ export function SignalDecisionGuide({ signal, sentimentValue = 50 }: Props) {
   // Recommended timeframe logic
   const recommendedTF = allAligned ? "1H (confirmación principal)" : majorAligned ? "1H ó 4H" : "4H (swing más seguro)";
 
-  // Exit strategy
-  const slPrice = signal.stop_loss;
-  const tp1Price = signal.take_profit_1;
-  const tp2Price = signal.take_profit_2;
-  const slPct = signal.sl_pct;
-  const tp1Pct = signal.tp1_pct;
-  const tp2Pct = signal.tp2_pct;
+  // Exit strategy with safe fallbacks
+  const slPrice = signal.stop_loss ?? 0;
+  const tp1Price = signal.take_profit_1 ?? 0;
+  const tp2Price = signal.take_profit_2 ?? 0;
+  const slPct = signal.sl_pct ?? 0;
+  const tp1Pct = signal.tp1_pct ?? 0;
+  const tp2Pct = signal.tp2_pct ?? 0;
 
   return (
     <div className="space-y-5">

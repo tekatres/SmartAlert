@@ -160,33 +160,37 @@ function calcADX(highs: number[], lows: number[], closes: number[], period = 14)
   };
 }
 
-/** RSI Divergence — looks back 20 candles for price vs RSI divergence */
+/** RSI Divergence — compares current price/RSI against a reference swing 8-28 bars ago */
 function detectRSIDivergence(closes: number[], period = 14): "BULLISH" | "BEARISH" | "NONE" {
-  if (closes.length < 30) return "NONE";
+  if (closes.length < 35) return "NONE";
   const rsiSeries = calcRSISeries(closes, period);
-  const lookback = 20;
   const n = closes.length;
+  const rn = rsiSeries.length;
 
-  // Find swing low/high in last `lookback` bars (excluding last 2)
-  const priceLast = closes[n - 1];
-  const rsiLast = rsiSeries[rsiSeries.length - 1];
+  const currentPrice = closes[n - 1];
+  const currentRSI = rsiSeries[rn - 1];
 
-  const priceWindow = closes.slice(n - lookback, n - 2);
-  const rsiWindow = rsiSeries.slice(rsiSeries.length - lookback, rsiSeries.length - 2);
+  // Reference window: 8 to 28 bars ago — avoids recency bias, not too distant
+  const refPrices = closes.slice(n - 28, n - 8);
+  const refRSIs   = rsiSeries.slice(rn - 28, rn - 8);
+  if (refPrices.length < 5) return "NONE";
 
-  const prevPriceLow = Math.min(...priceWindow);
-  const prevPriceHigh = Math.max(...priceWindow);
-  const prevRSILow = Math.min(...rsiWindow);
-  const prevRSIHigh = Math.max(...rsiWindow);
-
-  // Bullish: price lower low, RSI higher low
-  if (priceLast < prevPriceLow && rsiLast > prevRSILow && rsiLast < 50) {
+  // Bullish divergence: current price near/at ref swing low but RSI is higher
+  const refPriceLow = Math.min(...refPrices);
+  const refLowIdx   = refPrices.indexOf(refPriceLow);
+  const refRSIAtLow = refRSIs[refLowIdx] ?? 50;
+  if (currentPrice <= refPriceLow * 1.03 && currentRSI > refRSIAtLow + 4 && currentRSI < 58) {
     return "BULLISH";
   }
-  // Bearish: price higher high, RSI lower high
-  if (priceLast > prevPriceHigh && rsiLast < prevRSIHigh && rsiLast > 50) {
+
+  // Bearish divergence: current price near/at ref swing high but RSI is lower
+  const refPriceHigh = Math.max(...refPrices);
+  const refHighIdx   = refPrices.indexOf(refPriceHigh);
+  const refRSIAtHigh = refRSIs[refHighIdx] ?? 50;
+  if (currentPrice >= refPriceHigh * 0.97 && currentRSI < refRSIAtHigh - 4 && currentRSI > 42) {
     return "BEARISH";
   }
+
   return "NONE";
 }
 
@@ -403,14 +407,14 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       // PILAR 5: Momentum MACD + RSI Multi-TF (weight 2)
       const macdBull = macd.hist > 0;
       const macdBear = macd.hist < 0;
-      if (rsi1h < 52 && macdBull) {
-        votes.push({ name: "5. Momentum MACD+RSI", vote: "LONG", weight: 2, value: rsi1h, explanation: `RSI 1h (${rsi1h.toFixed(1)}) compradora. MACD positivo.` });
+      if (rsi1h > 50 && macdBull) {
+        votes.push({ name: "5. Momentum MACD+RSI", vote: "LONG", weight: 2, value: rsi1h, explanation: `RSI 1h (${rsi1h.toFixed(1)} > 50) alcista y MACD positivo en expansión.` });
         longScore += 2;
-      } else if (rsi1h > 48 && macdBear) {
-        votes.push({ name: "5. Momentum MACD+RSI", vote: "SHORT", weight: 2, value: rsi1h, explanation: `RSI 1h (${rsi1h.toFixed(1)}) vendedora. MACD negativo.` });
+      } else if (rsi1h < 50 && macdBear) {
+        votes.push({ name: "5. Momentum MACD+RSI", vote: "SHORT", weight: 2, value: rsi1h, explanation: `RSI 1h (${rsi1h.toFixed(1)} < 50) bajista y MACD negativo en contracción.` });
         shortScore += 2;
       } else {
-        votes.push({ name: "5. Momentum MACD+RSI", vote: "NEUTRAL", weight: 0.5, value: rsi1h, explanation: `Momentum neutro (RSI 1h=${rsi1h.toFixed(1)}).` });
+        votes.push({ name: "5. Momentum MACD+RSI", vote: "NEUTRAL", weight: 0.5, value: rsi1h, explanation: `Momentum divergente o neutro (RSI 1h=${rsi1h.toFixed(1)}, MACD Hist=${macd.hist.toFixed(4)}).` });
       }
 
       // PILAR 6: ADX — Fuerza de Tendencia (weight 1.5)
@@ -433,15 +437,23 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
         votes.push({ name: "7. Divergencia RSI", vote: "NEUTRAL", weight: 0, value: rsi1h, explanation: `Sin divergencia RSI activa.` });
       }
 
-      // PILAR 8: Bollinger Bands (weight 1.5)
-      if (bb.breakoutUp) {
-        votes.push({ name: "8. Bollinger Breakout ↑", vote: "LONG", weight: 1.5, value: bb.bandwidth, explanation: `Precio por encima de la banda superior de Bollinger.` });
-        longScore += 1.5;
-      } else if (bb.breakoutDown) {
-        votes.push({ name: "8. Bollinger Breakout ↓", vote: "SHORT", weight: 1.5, value: bb.bandwidth, explanation: `Precio por debajo de la banda inferior de Bollinger.` });
+      // PILAR 8: Bollinger Bands B% Position (activo siempre, no solo en breakout)
+      // B% = 0 → precio en banda inferior (sobreventa) | B% = 1 → banda superior (sobrecompra)
+      const bPercent = (bb.upper > bb.lower) ? (currentPrice - bb.lower) / (bb.upper - bb.lower) : 0.5;
+      if (bb.breakoutUp || bPercent >= 0.80) {
+        votes.push({ name: "8. Bollinger Sobrecompra", vote: "SHORT", weight: 1.5, value: bPercent, explanation: `B%=${(bPercent * 100).toFixed(0)}% — precio en zona sobrecomprada (banda superior).` });
         shortScore += 1.5;
+      } else if (bb.breakoutDown || bPercent <= 0.20) {
+        votes.push({ name: "8. Bollinger Sobreventa", vote: "LONG", weight: 1.5, value: bPercent, explanation: `B%=${(bPercent * 100).toFixed(0)}% — precio en zona sobrevendida (banda inferior).` });
+        longScore += 1.5;
+      } else if (bPercent >= 0.65) {
+        votes.push({ name: "8. Bollinger Presión Alta", vote: "SHORT", weight: 0.75, value: bPercent, explanation: `B%=${(bPercent * 100).toFixed(0)}% — precio en tercio superior, presión vendedora latente.` });
+        shortScore += 0.75;
+      } else if (bPercent <= 0.35) {
+        votes.push({ name: "8. Bollinger Presión Baja", vote: "LONG", weight: 0.75, value: bPercent, explanation: `B%=${(bPercent * 100).toFixed(0)}% — precio en tercio inferior, posible soporte.` });
+        longScore += 0.75;
       } else {
-        votes.push({ name: "8. Bollinger Bands", vote: "NEUTRAL", weight: 0, value: bb.bandwidth, explanation: `Precio dentro de las Bandas de Bollinger.` });
+        votes.push({ name: "8. Bollinger Bands", vote: "NEUTRAL", weight: 0, value: bPercent, explanation: `B%=${(bPercent * 100).toFixed(0)}% — precio en zona central neutra.` });
       }
 
       // PILAR 9: Patrón de Velas + Funding Rate (weight 1.5)
@@ -459,10 +471,18 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       votes.push({ name: `9. Velas+Funding`, vote: candleVote, weight: 1.5, value: fundingRate, explanation: `${candleExplanation} Funding (${(fundingRate * 100).toFixed(4)}%).` });
 
       // ── Score calculation ────────────────────────────────────────────────────
-      const direction: "LONG" | "SHORT" = longScore >= shortScore ? "LONG" : "SHORT";
+      // FIX #1: Remove LONG tie bias — SHORT wins on equal score
+      const direction: "LONG" | "SHORT" = longScore > shortScore ? "LONG" : "SHORT";
       const winningScore = direction === "LONG" ? longScore : shortScore;
-      const totalPossible = 16.5;
-      const confluenceScore = Math.min(12, Math.max(4, Math.round((winningScore / totalPossible) * 12)));
+      const scoreDiff = Math.abs(longScore - shortScore);
+
+      // FIX #4: Dynamic normalization — only count weights actually cast (non-neutral)
+      const totalWeightCast = votes
+        .filter(v => v.vote !== "NEUTRAL")
+        .reduce((sum, v) => sum + v.weight, 0);
+      const confluenceScore = totalWeightCast > 0
+        ? Math.min(12, Math.max(4, Math.round((winningScore / totalWeightCast) * 12)))
+        : 4;
 
       // Dynamic leverage based on ATR volatility and ADX market regime (Recommendation #3)
       // Ranging market (ADX < 25): Conservative 3x-5x to avoid liquidation on chop
@@ -489,27 +509,31 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       const signalId = `live_${item.symbol.toLowerCase()}_${nowTs}`;
       const alertId = `alert_live_${item.symbol.toLowerCase()}_${nowTs}`;
 
-      // Create alert document for every scanned pair (Market Alerts)
-      const alertDoc = {
-        type: changePct >= 0 ? "price_surge" : "price_dump",
-        severity: confluenceScore >= 8 ? "high" : "medium",
-        coin_id: item.coin_id,
-        symbol: item.symbol,
-        name: item.name,
-        price_usd: parseFloat(entry.toFixed(4)),
-        previous_price_usd: parseFloat(k1h[0].open.toFixed(4)),
-        change_pct: changePct,
-        volume_24h_usd: k1h.reduce((a: number, b: { volume: number; close: number }) => a + b.volume * b.close, 0),
-        volume_ratio: volumeRatio,
-        score: Math.min(98, confluenceScore * 8 + 10),
-        title: `${direction === "LONG" ? "🟢" : "🔴"} ${item.symbol} $${entry.toFixed(2)} — Confluencia ${confluenceScore}/12 (${changePct >= 0 ? "+" : ""}${changePct}%)`,
-        summary: `Motor de 9 Pilares para ${item.name}. ADX ${adx.adx.toFixed(1)}, Confluencia ${confluenceScore}/12.`,
-        explanation: `Análisis avanzado: ADX=${adx.adx.toFixed(1)}, Divergencia RSI=${rsiDiv}, Patrón velas=${candlePat}, BB Squeeze=${bb.isSqueeze}. VWAP $${vwap.toFixed(2)}.`,
-        recommended_action: `${direction} en $${entry.toFixed(2)} · SL $${sl.toFixed(2)} (-${slPct}%) · TP1 $${tp1.toFixed(2)} (+${tp1Pct}%) · Kraken ${item.kraken}`,
-        min_tier: "free",
-        created_at: Timestamp.now(),
-      };
-      newAlerts.push({ id: alertId, data: alertDoc });
+      // FIX #5: Only generate an alert if confluence is meaningful (>= 7) AND the market is moving
+      // Prevents 13 identical low-quality alerts on every scan
+      const isMixedSignal = scoreDiff < 1.5; // longScore ≈ shortScore — market undecided
+      if (confluenceScore >= 7 && !isMixedSignal) {
+        const alertDoc = {
+          type: changePct >= 0 ? "price_surge" : "price_dump",
+          severity: confluenceScore >= 9 ? "high" : "medium",
+          coin_id: item.coin_id,
+          symbol: item.symbol,
+          name: item.name,
+          price_usd: parseFloat(entry.toFixed(4)),
+          previous_price_usd: parseFloat(k1h[0].open.toFixed(4)),
+          change_pct: changePct,
+          volume_24h_usd: k1h.reduce((a: number, b: { volume: number; close: number }) => a + b.volume * b.close, 0),
+          volume_ratio: volumeRatio,
+          score: Math.min(98, confluenceScore * 8 + 10),
+          title: `${direction === "LONG" ? "🟢" : "🔴"} ${item.symbol} $${entry.toFixed(2)} — Confluencia ${confluenceScore}/12 (${changePct >= 0 ? "+" : ""}${changePct}%)`,
+          summary: `Motor de 9 Pilares para ${item.name}. ADX ${adx.adx.toFixed(1)}, RSI Div: ${rsiDiv}, Confluencia ${confluenceScore}/12.`,
+          explanation: `ADX=${adx.adx.toFixed(1)}, Div RSI=${rsiDiv}, Patrón=${candlePat}, BB B%=${((currentPrice - bb.lower) / (bb.upper - bb.lower) * 100).toFixed(0)}%. VWAP $${vwap.toFixed(2)}.`,
+          recommended_action: `${direction} en $${entry.toFixed(2)} · SL $${sl.toFixed(2)} (-${slPct}%) · TP1 $${tp1.toFixed(2)} (+${tp1Pct}%)`,
+          min_tier: "free",
+          created_at: Timestamp.now(),
+        };
+        newAlerts.push({ id: alertId, data: alertDoc });
+      }
 
       // ── TIMEFRAME CONFIDENCE CALCULATIONS (X/10 rating) ────────────────────
       let score15mRaw = 5;

@@ -195,30 +195,30 @@ export default function SignalDetailPage() {
         </div>
         <PriceLevel signal={signal} />
         <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <RiskRow label="Precio de entrada" value={formatPrice(signal.entry_price)} />
+          <RiskRow label="Precio de entrada" value={formatPrice(signal.entry_price ?? 0)} />
           <RiskRow
             label="Stop-Loss"
-            value={`${formatPrice(signal.stop_loss)} (-${signal.sl_pct.toFixed(2)}%)`}
+            value={`${formatPrice(signal.stop_loss ?? 0)} (-${(signal.sl_pct ?? 0).toFixed(2)}%)`}
             tone="text-rose-400"
           />
           <RiskRow
             label="Take-Profit 1 (50%)"
-            value={`${formatPrice(signal.take_profit_1)} (+${signal.tp1_pct.toFixed(2)}%)`}
+            value={`${formatPrice(signal.take_profit_1 ?? 0)} (+${(signal.tp1_pct ?? 0).toFixed(2)}%)`}
             tone="text-emerald-400"
           />
           <RiskRow
             label="Take-Profit 2 (100%)"
-            value={`${formatPrice(signal.take_profit_2)} (+${signal.tp2_pct.toFixed(2)}%)`}
+            value={`${formatPrice(signal.take_profit_2 ?? 0)} (+${(signal.tp2_pct ?? 0).toFixed(2)}%)`}
             tone="text-emerald-300"
           />
         </div>
         <div className="mt-4 grid grid-cols-3 gap-3 border-t border-white/5 pt-4">
-          <RiskRow label="Risk/Reward" value={`1:${signal.risk_reward.toFixed(2)}`} />
-          <RiskRow label="ATR (14, 1h)" value={formatPrice(signal.atr)} />
+          <RiskRow label="Risk/Reward" value={`1:${(signal.risk_reward ?? 0).toFixed(2)}`} />
+          <RiskRow label="ATR (14, 1h)" value={formatPrice(signal.atr ?? 0)} />
           <RiskRow
             label="Funding Rate"
-            value={`${(signal.funding_rate * 100).toFixed(4)}%`}
-            tone={signal.funding_rate < 0 ? "text-emerald-400" : "text-rose-400"}
+            value={`${((signal.funding_rate ?? 0) * 100).toFixed(4)}%`}
+            tone={(signal.funding_rate ?? 0) < 0 ? "text-emerald-400" : "text-rose-400"}
           />
         </div>
       </section>
@@ -502,15 +502,15 @@ function BiasCard({ label, bias }: { label: string; bias: string }) {
 function PriceLevel({ signal }: { signal: TradingSignalDoc }) {
   const isLong = signal.direction === "LONG";
 
-  // Build a mini visual level chart using SVG
-  const entry = signal.entry_price;
-  const sl = signal.stop_loss;
-  const tp1 = signal.take_profit_1;
-  const tp2 = signal.take_profit_2;
+  // Build a mini visual level chart using SVG with safe defaults
+  const entry = signal.entry_price ?? 0;
+  const sl = signal.stop_loss ?? 0;
+  const tp1 = signal.take_profit_1 ?? 0;
+  const tp2 = signal.take_profit_2 ?? 0;
 
-  const allPrices = [sl, entry, tp1, tp2];
-  const minP = Math.min(...allPrices);
-  const maxP = Math.max(...allPrices);
+  const allPrices = [sl, entry, tp1, tp2].filter((p) => p > 0);
+  const minP = allPrices.length > 0 ? Math.min(...allPrices) : 1;
+  const maxP = allPrices.length > 0 ? Math.max(...allPrices) : 2;
   const range = maxP - minP || 1;
 
   const pct = (price: number) =>
