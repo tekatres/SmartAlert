@@ -70,8 +70,8 @@ export function PositionRiskCalculator({ signal, isOpen, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="card w-full max-w-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-sm p-0 sm:p-4 overflow-hidden">
+      <div className="card w-full sm:max-w-xl border border-slate-700 bg-slate-900 p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 animate-in fade-in slide-in-from-bottom-4 sm:zoom-in duration-200 max-h-[92vh] overflow-y-auto rounded-b-none sm:rounded-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div className="flex items-center gap-3">
@@ -230,7 +230,7 @@ export function PositionRiskCalculator({ signal, isOpen, onClose }: Props) {
         <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              📊 Resultados de Gestión de Riesgo (Dimensionamiento por Volatilidad ATR)
+              📊 Resultados de Gestión de Riesgo
             </h3>
             {signal?.atr && (
               <span className="rounded bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-mono font-bold text-emerald-300">
@@ -297,17 +297,17 @@ export function PositionRiskCalculator({ signal, isOpen, onClose }: Props) {
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between gap-3 pt-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2">
           <button
             onClick={handleCopyParams}
-            className="flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20"
+            className="flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 transition-colors shadow-lg shadow-emerald-500/20 flex-1"
           >
-            {copied ? "✓ Copiado al portapapeles" : "📋 Copiar Parámetros para Exchange"}
+            {copied ? "✓ Copiado" : "📋 Copiar Parámetros"}
           </button>
 
           <button
             onClick={onClose}
-            className="rounded-lg bg-white/5 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors"
+            className="rounded-lg bg-white/5 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors sm:w-auto"
           >
             Cerrar
           </button>

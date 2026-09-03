@@ -181,14 +181,15 @@ export default function DashboardPage() {
             onClick={() => setShowPaperModal(true)}
             className="flex items-center gap-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 px-3.5 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition-all shadow-md"
           >
-            🎮 Simulador ($10,000)
+            🎮 Simulador
           </button>
 
-          <div className="flex items-center gap-1 rounded-xl bg-slate-900 p-1 border border-slate-800">
+          {/* View mode scrollable row on mobile */}
+          <div className="flex items-center gap-1 rounded-xl bg-slate-900 p-1 border border-slate-800 overflow-x-auto max-w-full">
             <button
               onClick={() => setViewMode("list")}
               className={clsx(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all whitespace-nowrap",
                 viewMode === "list"
                   ? "bg-emerald-500 text-slate-950 shadow-md"
                   : "text-slate-400 hover:text-slate-200"
@@ -199,46 +200,46 @@ export default function DashboardPage() {
             <button
               onClick={() => setViewMode("sim")}
               className={clsx(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all whitespace-nowrap",
                 viewMode === "sim"
                   ? "bg-emerald-500 text-slate-950 shadow-md"
                   : "text-slate-400 hover:text-slate-200"
               )}
             >
-              🎮 Panel Simulador + Chart
+              🎮 Sim
             </button>
             <button
               onClick={() => setViewMode("heatmap")}
               className={clsx(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all whitespace-nowrap",
                 viewMode === "heatmap"
                   ? "bg-emerald-500 text-slate-950 shadow-md"
                   : "text-slate-400 hover:text-slate-200"
               )}
             >
-              🔥 Mapa de Calor
+              🔥 Calor
             </button>
             <button
               onClick={() => setViewMode("compact")}
               className={clsx(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all whitespace-nowrap",
                 viewMode === "compact"
                   ? "bg-emerald-500 text-slate-950 shadow-md"
                   : "text-slate-400 hover:text-slate-200"
               )}
             >
-              ⚡ Compacto
+              ⚡ Compact
             </button>
             <button
               onClick={() => setViewMode("split")}
               className={clsx(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all",
+                "hidden sm:flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all whitespace-nowrap",
                 viewMode === "split"
                   ? "bg-emerald-500 text-slate-950 shadow-md"
                   : "text-slate-400 hover:text-slate-200"
               )}
             >
-              🖥️ Multi-Chart
+              🖥️ Multi
             </button>
           </div>
         </div>

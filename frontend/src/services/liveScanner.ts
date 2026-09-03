@@ -276,7 +276,7 @@ function detectCandlePattern(
 // DATA FETCHING
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function fetchKlines(symbol: string, interval: string, limit = 120) {
+async function fetchKlines(symbol: string, interval: string, limit = 200) {
   const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch klines for ${symbol}`);
@@ -313,9 +313,9 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
   for (const item of SYMBOLS) {
     try {
       const [k15m, k1h, k4h, fundingRate] = await Promise.all([
-        fetchKlines(item.binance, "15m", 120),
-        fetchKlines(item.binance, "1h", 120),
-        fetchKlines(item.binance, "4h", 80),
+        fetchKlines(item.binance, "15m", 100),
+        fetchKlines(item.binance, "1h", 200),
+        fetchKlines(item.binance, "4h", 100),
         fetchFundingRate(item.binance),
       ]);
 
@@ -341,6 +341,7 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       const ema9     = calcEMA(closes1h, 9);
       const ema21    = calcEMA(closes1h, 21);
       const ema50    = calcEMA(closes1h, 50);
+      const ema200   = calcEMA(closes1h, 200); // Institutional Trend Filter
       const ema50_4h = calcEMA(closes4h, 50);
       const vwap     = calcVWAP(highs1h, lows1h, closes1h, volumes1h);
       const atr1h    = calcATR(highs1h, lows1h, closes1h, 14);
@@ -370,17 +371,24 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
         votes.push({ name: "1. Estructura de Mercado", vote: "NEUTRAL", weight: 0, value: currentPrice, explanation: `Estructura mixta o indefinida en el rango reciente.` });
       }
 
-      // PILAR 2: Tendencia Multitemporal EMA Ribbon (weight 2)
+      // PILAR 2: Tendencia Multitemporal EMA Ribbon + Filtro Institucional EMA200 (weight 2.5)
       const emaLong  = currentPrice > ema9 && ema9 > ema21 && ema21 > ema50;
       const emaShort = currentPrice < ema9 && ema9 < ema21 && ema21 < ema50;
-      if (emaLong) {
-        votes.push({ name: "2. Abanico EMA (9/21/50)", vote: "LONG", weight: 2, value: ema9, explanation: `Alineación alcista: Precio>${ema9.toFixed(2)} EMA9>${ema21.toFixed(2)} EMA21.` });
-        longScore += 2;
+      const aboveEma200 = currentPrice > ema200;
+      if (emaLong && aboveEma200) {
+        votes.push({ name: "2. Abanico EMA + EMA200", vote: "LONG", weight: 2.5, value: ema9, explanation: `Alineación alcista institucional: Precio > EMA9 > EMA21 > EMA50 y sobre EMA200 ($${ema200.toFixed(2)}).` });
+        longScore += 2.5;
+      } else if (emaLong) {
+        votes.push({ name: "2. Abanico EMA", vote: "LONG", weight: 1.5, value: ema9, explanation: `Abanico alcista a corto plazo, testeando zona EMA200 ($${ema200.toFixed(2)}).` });
+        longScore += 1.5;
+      } else if (emaShort && !aboveEma200) {
+        votes.push({ name: "2. Abanico EMA + EMA200", vote: "SHORT", weight: 2.5, value: ema9, explanation: `Alineación bajista institucional: Precio < EMA9 < EMA21 < EMA50 y bajo EMA200 ($${ema200.toFixed(2)}).` });
+        shortScore += 2.5;
       } else if (emaShort) {
-        votes.push({ name: "2. Abanico EMA (9/21/50)", vote: "SHORT", weight: 2, value: ema9, explanation: `Alineación bajista: Precio<${ema9.toFixed(2)} EMA9<${ema21.toFixed(2)} EMA21.` });
-        shortScore += 2;
+        votes.push({ name: "2. Abanico EMA", vote: "SHORT", weight: 1.5, value: ema9, explanation: `Abanico bajista a corto plazo, testeando zona EMA200 ($${ema200.toFixed(2)}).` });
+        shortScore += 1.5;
       } else {
-        votes.push({ name: "2. Abanico EMA", vote: "NEUTRAL", weight: 0.5, value: ema9, explanation: `EMAs comprimidas o cruzándose. Tendencia no definida.` });
+        votes.push({ name: "2. Abanico EMA", vote: "NEUTRAL", weight: 0.5, value: ema9, explanation: `EMAs comprimidas o cruzándose respecto a EMA200 ($${ema200.toFixed(2)}).` });
       }
 
       // PILAR 3: Volumen Relativo Institucional (weight 2)
@@ -494,8 +502,8 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
         leverage = Math.min(10, Math.max(5, Math.floor(8 / (atrPct || 1))));
       }
       const slPct    = parseFloat((Math.max(1.2, atrPct * 1.5)).toFixed(2));
-      const tp1Pct   = parseFloat((slPct * 1.6).toFixed(2));
-      const tp2Pct   = parseFloat((slPct * 2.8).toFixed(2));
+      const tp1Pct   = parseFloat((slPct * 2.0).toFixed(2)); // Institutional standard: minimum 1:2.0 R:R on TP1
+      const tp2Pct   = parseFloat((slPct * 3.2).toFixed(2)); // Extended target: 1:3.2 R:R on TP2
       const rr       = parseFloat((tp1Pct / slPct).toFixed(2));
 
       const isLong  = direction === "LONG";

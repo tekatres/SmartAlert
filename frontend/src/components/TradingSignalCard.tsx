@@ -85,42 +85,42 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
     <>
       <div
         className={clsx(
-          "card card-hover block p-5 border relative transition-all space-y-4",
+          "card card-hover block p-4 sm:p-5 border relative transition-all space-y-3 sm:space-y-4",
           isLong ? "border-emerald-500/30 hover:border-emerald-500/50" : "border-rose-500/30 hover:border-rose-500/50"
         )}
       >
         <article>
           {/* Header */}
-          <header className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
+          <header className="flex items-start justify-between gap-2 sm:gap-4">
+            <div className="flex items-start gap-2 sm:gap-3 min-w-0">
               <div
                 className={clsx(
-                  "flex h-11 w-11 items-center justify-center rounded-xl font-black text-sm shadow-md",
+                  "flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl font-black text-xs sm:text-sm shadow-md",
                   isLong ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
                 )}
               >
                 {signal.symbol}
               </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={clsx("badge border text-xs font-bold px-2 py-0.5", dirColor)}>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className={clsx("badge border text-xs font-bold px-2 py-0.5 shrink-0", dirColor)}>
                     {dirEmoji} {signal.direction}
                   </span>
-                  <span className="rounded-md bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 text-xs font-bold text-amber-300">
+                  <span className="rounded-md bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 text-xs font-bold text-amber-300 shrink-0">
                     {signal.leverage}x
                   </span>
-                  {confluenceBadge}
+                  <span className="w-full sm:w-auto">{confluenceBadge}</span>
                   <SignalOutcomeBadge outcome={signal.outcome} />
                 </div>
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 text-xs text-slate-400 truncate">
                   {signal.name} · {formatTime(signal.created_at)}
                 </p>
               </div>
             </div>
 
             {/* Confluence score */}
-            <div className="text-right">
-              <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Confluencia</p>
+            <div className="text-right shrink-0">
+              <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Conf.</p>
               <ConfluenceBar
                 score={signal.confluence_score}
                 total={signal.confluence_total}
@@ -129,7 +129,7 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
           </header>
 
           {/* Trade levels */}
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 rounded-lg bg-slate-950/60 p-3 border border-slate-800/80">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-4 rounded-lg bg-slate-950/60 p-2.5 sm:p-3 border border-slate-800/80">
             <Stat label="Entrada" value={formatPrice(signal.entry_price)} />
             <Stat
               label="Stop-Loss"
@@ -156,8 +156,9 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
           )}
 
           {/* Risk/Reward + Actions */}
-          <footer className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/60">
-            <div className="flex flex-wrap items-center gap-2">
+          <footer className="flex flex-col gap-2.5 pt-2 border-t border-slate-800/60">
+            {/* Bias tags row */}
+            <div className="flex flex-wrap items-center gap-1.5">
               <span className="rounded bg-white/5 px-2 py-0.5 text-xs text-slate-300 font-mono">
                 R:R {signal.risk_reward.toFixed(2)}
               </span>
@@ -166,22 +167,23 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
               <BiasTag label="4h" bias={signal.bias_4h} />
             </div>
 
-            <div className="flex items-center gap-2">
+            {/* Action buttons — 3-col grid on mobile, inline on sm+ */}
+            <div className="grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
               <button
                 onClick={() => setShowChart(!showChart)}
                 className={clsx(
-                  "rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
+                  "rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors text-center",
                   showChart
                     ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
                     : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
                 )}
               >
-                📊 {showChart ? "Ocultar Gráfico" : "Ver Gráfico"}
+                📊 Gráfico
               </button>
 
               <button
                 onClick={() => setShowPaperModal(true)}
-                className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+                className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-2 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 transition-colors text-center"
                 title="Ejecutar en modo simulador sin riesgo"
               >
                 🎮 Simulador
@@ -189,7 +191,7 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
 
               <button
                 onClick={() => setShowCalculator(true)}
-                className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors"
+                className="rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors text-center"
                 title="Calcular riesgo para tu capital"
               >
                 🧮 Riesgo
@@ -199,17 +201,17 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
                 href={krakenUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors"
+                className="rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors text-center col-span-1"
                 title="Abrir en Kraken Futures"
               >
-                🏛️ Kraken ↗
+                🏛️ Kraken
               </a>
 
               <Link
                 to={`/signals/${signal.id}`}
-                className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors"
+                className="rounded-lg bg-brand-500/20 border border-brand-500/40 px-2 py-1.5 text-xs font-bold text-brand-300 hover:bg-brand-500/30 transition-colors text-center col-span-2 sm:col-span-1"
               >
-                Detalle →
+                Ver Detalle →
               </Link>
             </div>
           </footer>

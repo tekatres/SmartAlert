@@ -119,7 +119,7 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
   return (
     <div
       className={clsx(
-        "relative overflow-hidden rounded-2xl border p-6 shadow-2xl transition-all space-y-5",
+        "relative overflow-hidden rounded-2xl border p-4 sm:p-6 shadow-2xl transition-all space-y-4 sm:space-y-5",
         isLong
           ? "border-emerald-500/40 bg-gradient-to-r from-slate-900 via-emerald-950/20 to-slate-950"
           : "border-rose-500/40 bg-gradient-to-r from-slate-900 via-rose-950/20 to-slate-950"
@@ -134,7 +134,7 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
       />
 
       {/* Header Banner */}
-      <div className="relative flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+      <div className="relative flex flex-col gap-3 border-b border-slate-800/80 pb-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="badge bg-amber-500/10 text-amber-300 border border-amber-500/20 text-xs font-black tracking-wide">
@@ -151,19 +151,19 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
               {isLong ? "🟢 ENTRADA LONG" : "🔴 ENTRADA SHORT"} {topSignal.symbol}
             </span>
             <span className="rounded-md bg-white/5 border border-white/10 px-2 py-0.5 text-xs font-mono font-bold text-slate-300">
-              Apalancamiento {cappedLeverage}x (Máx. 10x)
+              {cappedLeverage}x
             </span>
           </div>
 
-          <h2 className="mt-2 text-2xl font-black text-slate-100 tracking-tight flex items-center gap-2">
-            <span>{topSignal.name}</span>
-            <span className="text-sm font-normal text-slate-400">
-              (Confluencia: <strong className="text-emerald-400 font-mono">{topSignal.confluence_score}/{topSignal.confluence_total}</strong> pilares aprobados)
+          <h2 className="mt-2 text-xl sm:text-2xl font-black text-slate-100 tracking-tight leading-tight">
+            {topSignal.name}
+            <span className="block sm:inline text-sm font-normal text-slate-400 sm:ml-2">
+              (Confluencia: <strong className="text-emerald-400 font-mono">{topSignal.confluence_score}/{topSignal.confluence_total}</strong>)
             </span>
           </h2>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => handleLiveScan(6)}
             disabled={isScanning}
@@ -176,7 +176,7 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
             onClick={copyActionPlan}
             className="flex items-center gap-1.5 rounded-xl bg-white/5 border border-white/10 px-4 py-2 text-xs font-bold text-slate-200 hover:bg-white/10 transition-all"
           >
-            {copied ? "✓ Copiado" : "📋 Copiar Parámetros"}
+            {copied ? "✓ Copiado" : "📋 Copiar Params"}
           </button>
 
           <a
@@ -185,7 +185,7 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
             rel="noreferrer"
             className="flex items-center gap-1.5 rounded-xl bg-slate-950 border border-slate-700 px-4 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800 transition-all"
           >
-            🏛️ Kraken Futures ↗
+            🏛️ Kraken ↗
           </a>
         </div>
       </div>
@@ -193,10 +193,10 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
       {/* ACTION PLAN 4-STEP GRID */}
       <div className="space-y-3">
         <h3 className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-2">
-          <span>📌</span> Plan de Acción Directo (¿Qué tengo que hacer?)
+          <span>📌</span> Plan de Acción Directo
         </h3>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* STEP 1 */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/90 p-4 space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
@@ -252,14 +252,14 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
       </div>
 
       {/* 7 PILLARS RATIONALE BREAKDOWN */}
-      <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4 space-y-2">
-        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-          <span>🧠 Razones Cuantitativas de la Señal ({topSignal.confluence_score}/12 Pilares)</span>
+      <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-3 sm:p-4 space-y-2">
+        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <span>🧠 Razones Cuantitativas ({topSignal.confluence_score}/12 Pilares)</span>
           <button
             onClick={() => setShowCalculator(true)}
-            className="text-xs text-emerald-400 font-bold hover:underline"
+            className="text-xs text-emerald-400 font-bold hover:underline text-left sm:text-right"
           >
-            🧮 Calcular Margen en $ USD →
+            🧮 Calcular Margen →
           </button>
         </h4>
 

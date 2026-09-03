@@ -96,26 +96,26 @@ export default function SignalDetailPage() {
 
       {/* Header */}
       <header className={clsx(
-        "card p-6 border",
+        "card p-4 sm:p-6 border",
         isLong ? "border-emerald-500/25" : "border-rose-500/25"
       )}>
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <p className="text-xs uppercase tracking-wide text-slate-500">
               Señal de Trading · {format(created, "PPpp")}
             </p>
-            <h1 className="mt-1 text-3xl font-bold">
+            <h1 className="mt-1 text-2xl sm:text-3xl font-bold break-words">
               {dirEmoji} {signal.direction}{" "}
               <span className="text-slate-400">{signal.symbol}</span>
             </h1>
-            <p className="mt-1 text-sm text-slate-400">{signal.name} · {signal.signal_type}</p>
+            <p className="mt-1 text-xs sm:text-sm text-slate-400">{signal.name} · {signal.signal_type}</p>
           </div>
           <div className={clsx(
-            "rounded-xl px-4 py-3 text-center",
+            "rounded-xl px-3 py-2 sm:px-4 sm:py-3 text-center shrink-0",
             isLong ? "bg-emerald-500/10" : "bg-rose-500/10"
           )}>
             <p className={clsx(
-              "text-3xl font-bold",
+              "text-2xl sm:text-3xl font-bold",
               isLong ? "text-emerald-300" : "text-rose-300"
             )}>
               {signal.leverage}x
@@ -177,24 +177,24 @@ export default function SignalDetailPage() {
           </h2>
           <span className="text-xs text-slate-400 font-mono">Pau/Velas 1 hora</span>
         </div>
-        <TradingViewChart symbol={signal.symbol} height={420} interval="60" />
+        <TradingViewChart symbol={signal.symbol} height={300} interval="60" />
       </section>
 
       {/* Risk Management Panel */}
       <section className="card p-5 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Gestión de Riesgo & Niveles
+            Gestión de Riesgo &amp; Niveles
           </h2>
           <button
             onClick={() => setShowCalculator(true)}
-            className="flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+            className="flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition-colors self-start sm:self-auto"
           >
-            🧮 Abrir Calculadora de Riesgo
+            🧮 Calculadora de Riesgo
           </button>
         </div>
         <PriceLevel signal={signal} />
-        <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <RiskRow label="Precio de entrada" value={formatPrice(signal.entry_price ?? 0)} />
           <RiskRow
             label="Stop-Loss"
@@ -367,42 +367,75 @@ export default function SignalDetailPage() {
         </div>
       </section>
 
-      {/* Strategy guide */}
+      {/* Professional Broker Execution & Risk Protocol */}
       <section className={clsx(
-        "card border p-5",
-        isLong ? "border-emerald-500/20 bg-emerald-500/5" : "border-rose-500/20 bg-rose-500/5"
+        "card border p-6 space-y-4 shadow-xl",
+        isLong ? "border-emerald-500/30 bg-gradient-to-b from-emerald-500/10 via-slate-900/60 to-slate-950" : "border-rose-500/30 bg-gradient-to-b from-rose-500/10 via-slate-900/60 to-slate-950"
       )}>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-3">
-          Plan de Ejecución
-        </h2>
-        <ol className="space-y-2 text-sm text-slate-300">
-          <li>
-            <span className="font-semibold">1. Entra</span> en{" "}
-            <span className={isLong ? "text-emerald-300" : "text-rose-300"}>
-              {signal.direction}
-            </span>{" "}
-            a precio de mercado ~{formatPrice(signal.entry_price)} con apalancamiento{" "}
-            <strong>{signal.leverage}x</strong>.
-          </li>
-          <li>
-            <span className="font-semibold">2. Coloca el SL</span> inmediatamente en{" "}
-            <span className="text-rose-300">{formatPrice(signal.stop_loss)}</span>{" "}
-            ({signal.sl_pct.toFixed(2)}% de pérdida máxima).
-          </li>
-          <li>
-            <span className="font-semibold">3. TP1</span> en{" "}
-            <span className="text-emerald-400">{formatPrice(signal.take_profit_1)}</span>{" "}
-            — cierra el 50% de la posición (+{signal.tp1_pct.toFixed(2)}%).
-          </li>
-          <li>
-            <span className="font-semibold">4. TP2</span> en{" "}
-            <span className="text-emerald-300">{formatPrice(signal.take_profit_2)}</span>{" "}
-            — cierra el 100% restante (+{signal.tp2_pct.toFixed(2)}%).
-          </li>
-          <li className="text-slate-500 text-xs">
-            Si el precio cierra un candle de 1h en sentido contrario a la señal antes de TP1, considera cerrar manualmente.
-          </li>
-        </ol>
+        <div className="flex items-center justify-between border-b border-white/5 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🏛️</span>
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-wider text-slate-100">
+                Protocolo Institucional de Ejecución (Estilo Broker Pro)
+              </h2>
+              <p className="text-[11px] text-slate-400">
+                Reglas inquebrantables de gestión monetaria para proteger capital y maximizar expectativa matemática positiva.
+              </p>
+            </div>
+          </div>
+          <span className="rounded-full bg-slate-800 border border-slate-700 px-3 py-1 font-mono text-[10px] font-bold text-amber-300">
+            Regla del 1-2% Capital Máx.
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div className="rounded-xl bg-slate-950/80 p-3.5 border border-slate-800/80 space-y-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+              <span>📍</span> 1. Entrada & Dimensionamiento de Posición
+            </span>
+            <p className="text-slate-300 leading-relaxed">
+              Entrada en <strong className={isLong ? "text-emerald-300" : "text-rose-300"}>{signal.direction}</strong> a precio ~<strong>{formatPrice(signal.entry_price ?? 0)}</strong>.
+              Calcula el tamaño para que la pérdida máxima al SL nunca exceda el <strong>1% al 2%</strong> del balance total de tu cuenta. Apalancamiento sugerido: <strong className="text-amber-300 font-mono">{signal.leverage || 5}x</strong> en modo <strong>Aislado</strong>.
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-slate-950/80 p-3.5 border border-slate-800/80 space-y-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1">
+              <span>🛑</span> 2. Stop Loss Estricto (Innegociable)
+            </span>
+            <p className="text-slate-300 leading-relaxed">
+              SL colocado inmediatamente en <strong className="font-mono text-rose-400">{formatPrice(signal.stop_loss ?? 0)}</strong> (-{(signal.sl_pct ?? 0).toFixed(2)}%).
+              Los brokers profesionales <strong>jamás promedian a la baja</strong> ni amplían el SL cuando el precio se acerca. Si el mercado invalida la tesis, se asume la pérdida calculada sin emociones.
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-slate-950/80 p-3.5 border border-slate-800/80 space-y-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1">
+              <span>🎯</span> 3. Toma de Beneficio Parcial (TP1) & Riesgo Cero
+            </span>
+            <p className="text-slate-300 leading-relaxed">
+              Al alcanzar <strong className="font-mono text-emerald-400">{formatPrice(signal.take_profit_1 ?? 0)}</strong> (+{(signal.tp1_pct ?? 0).toFixed(2)}%), <strong>cierra el 50%</strong> del volumen.
+              Inmediatamente <strong>mueve el Stop Loss al precio de entrada (Breakeven)</strong>. A partir de este momento, la operación es matemáticamente imposible de perder.
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-slate-950/80 p-3.5 border border-slate-800/80 space-y-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1">
+              <span>🚀</span> 4. Runner Final (TP2) o Trailing Stop
+            </span>
+            <p className="text-slate-300 leading-relaxed">
+              Deja correr el 50% restante hasta <strong className="font-mono text-emerald-300">{formatPrice(signal.take_profit_2 ?? 0)}</strong> (+{(signal.tp2_pct ?? 0).toFixed(2)}%) o activa un <strong>Trailing Stop</strong> siguiendo la EMA21 de 15m para exprimir tendencias parabólicas.
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 text-[11px] text-amber-300 flex items-start gap-2">
+          <span className="text-base">⚠️</span>
+          <p>
+            <strong>Criterio de Salida por Invalidación Temporal:</strong> Si tras 6-8 horas de haber entrado el activo no ha alcanzado TP1 y cierra una vela de 1h en sentido contrario con volumen, los traders cuantitativos cierran manualmente para liberar liquidez y no pagar tasas de financiamiento innecesarias.
+          </p>
+        </div>
       </section>
 
       <PositionRiskCalculator

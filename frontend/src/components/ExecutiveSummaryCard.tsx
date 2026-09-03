@@ -33,15 +33,15 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
   const confidencePct = Math.round((score / 12) * 100);
 
   return (
-    <div className="rounded-2xl border-2 border-emerald-500/40 bg-slate-900/90 p-5 space-y-4 shadow-2xl">
+    <div className="rounded-2xl border-2 border-emerald-500/40 bg-slate-900/90 p-4 sm:p-5 space-y-3 sm:space-y-4 shadow-2xl">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 border-b border-slate-800 pb-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400 font-bold text-xl">
             💡
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                 Resumen Ejecutivo Simple
               </span>
@@ -49,8 +49,8 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
                 {actionStatus}
               </span>
             </div>
-            <h2 className="text-lg font-black text-slate-100">
-              ¿Qué hacer con {signal.symbol}? — Guía Rápida para la Operación
+            <h2 className="text-base sm:text-lg font-black text-slate-100 leading-tight">
+              ¿Qué hacer? — {signal.symbol} Guía Rápida
             </h2>
           </div>
         </div>
@@ -72,7 +72,7 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
       </div>
 
       {/* 3 Key Numbers (Big & Clear) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
         {/* Entry */}
         <div className="rounded-xl bg-slate-950 p-3.5 border border-slate-800 space-y-1">
           <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -110,6 +110,39 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
           <span className="block text-[10px] font-bold text-rose-400">
             Máxima pérdida protegida: -{slPct.toFixed(1)}%
           </span>
+        </div>
+      </div>
+
+      {/* INSTRUCCIÓN PASO A PASO DIRECTA Y PRECISA */}
+      <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 sm:p-4 space-y-2.5">
+        <h4 className="text-xs font-black uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+          <span>⚡</span> Instrucciones Exactas para Enviar la Orden
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-300">
+          <div className="rounded-lg bg-slate-950/70 p-2.5 border border-slate-800">
+            <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 1: Tipo & Entrada</span>
+            <p className="mt-0.5 font-medium">
+              Abre posición <strong className={isLong ? "text-emerald-400 font-black" : "text-rose-400 font-black"}>{signal.direction}</strong> con margen <strong>Aislado (Isolated)</strong> a <strong className="font-mono text-slate-100">${entryPrice.toLocaleString("en-US", { maximumFractionDigits: 4 })}</strong> (Apalancamiento: <strong className="text-amber-300">{signal.leverage || 5}x</strong>).
+            </p>
+          </div>
+          <div className="rounded-lg bg-slate-950/70 p-2.5 border border-slate-800">
+            <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 2: Protección Stop Loss</span>
+            <p className="mt-0.5 font-medium">
+              Pon orden SL en <strong className="font-mono text-rose-400 font-bold">${stopLoss.toLocaleString("en-US", { maximumFractionDigits: 4 })}</strong> (-{slPct.toFixed(2)}%). <span className="text-slate-400">Nunca muevas el SL en contra.</span>
+            </p>
+          </div>
+          <div className="rounded-lg bg-slate-950/70 p-2.5 border border-slate-800">
+            <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 3: Salida Parcial TP1 (50%)</span>
+            <p className="mt-0.5 font-medium">
+              Venta programada en <strong className="font-mono text-emerald-400 font-bold">${tp1Price.toLocaleString("en-US", { maximumFractionDigits: 4 })}</strong> (+{tp1Pct.toFixed(2)}%). Al tocarlo, <span className="text-amber-300 font-semibold">mueve SL a Breakeven</span> (precio de entrada).
+            </p>
+          </div>
+          <div className="rounded-lg bg-slate-950/70 p-2.5 border border-slate-800">
+            <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 4: Salida Final TP2 (100%)</span>
+            <p className="mt-0.5 font-medium">
+              Cierra el 50% restante en <strong className="font-mono text-emerald-300 font-bold">${(signal.take_profit_2 ?? 0).toLocaleString("en-US", { maximumFractionDigits: 4 })}</strong> (+{(signal.tp2_pct ?? 0).toFixed(2)}%) o usa Trailing Stop.
+            </p>
+          </div>
         </div>
       </div>
 
