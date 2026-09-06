@@ -137,6 +137,13 @@ export interface TradingSignalDoc {
   bias_4h: string;
   funding_rate: number;
   open_interest: number;
+  whale_flow?: {
+    taker_ratio: number;
+    top_trader_ratio: number;
+    bias: "WHALE_ACCUMULATION" | "WHALE_DISTRIBUTION" | "NEUTRAL";
+    badge_text: string;
+    narrative: string;
+  };
   signal_type: string;
   min_tier: UserTier;
   created_at: { seconds: number; nanoseconds: number } | string;

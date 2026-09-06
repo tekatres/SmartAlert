@@ -329,6 +329,21 @@ export function usePaperTrading() {
     });
   };
 
+  const updateTradeStopLoss = (tradeId: string, newStopLoss: number) => {
+    setAccount((prev) => {
+      const trade = prev.trades.find((t) => t.id === tradeId);
+      if (!trade) return prev;
+      const updated: PaperTrade = {
+        ...trade,
+        stopLoss: newStopLoss,
+      };
+      return {
+        ...prev,
+        trades: prev.trades.map((t) => (t.id === tradeId ? updated : t)),
+      };
+    });
+  };
+
   const resetAccount = () => {
     localStorage.removeItem(STORAGE_KEY_BALANCE);
     localStorage.removeItem(STORAGE_KEY_TRADES);
@@ -347,6 +362,7 @@ export function usePaperTrading() {
     openTrade,
     openTradeParams,
     closeTrade,
+    updateTradeStopLoss,
     resetAccount,
     forceSyncToCloud,
     syncStatus,

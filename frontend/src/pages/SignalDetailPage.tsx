@@ -11,8 +11,11 @@ import { TradingViewChart } from "@/components/TradingViewChart";
 import { SignalOutcomeBadge } from "@/components/SignalOutcomeBadge";
 import { SignalDecisionGuide } from "@/components/SignalDecisionGuide";
 import { ExecutiveSummaryCard } from "@/components/ExecutiveSummaryCard";
+import { ActiveTradeAdvisorCard } from "@/components/ActiveTradeAdvisorCard";
+import { PaperTradingModal } from "@/components/PaperTradingModal";
 import { fetchMarketSentiment } from "@/services/marketSentiment";
 import { useSignalSetupStats } from "@/hooks/useSignalStats";
+import { usePaperTrading } from "@/hooks/usePaperTrading";
 
 export default function SignalDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -83,13 +86,33 @@ export default function SignalDetailPage() {
   const shortVotes = signal.votes.filter((v) => v.vote === "SHORT");
   const neutralVotes = signal.votes.filter((v) => v.vote === "NEUTRAL");
 
+  // Check if user has an open position on this symbol
+  const { trades } = usePaperTrading();
+  const [showPaperModal, setShowPaperModal] = useState(false);
+  const activeTrade = trades.find(
+    (t) => (t.signalId === signal.id || t.symbol === signal.symbol) && t.status === "OPEN"
+  );
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div>
+      <div className="flex items-center justify-between">
         <Link to="/" className="text-xs text-slate-500 hover:text-slate-300">
           ← Volver al dashboard
         </Link>
+        {!activeTrade && (
+          <button
+            onClick={() => setShowPaperModal(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition-all shadow-sm"
+          >
+            <span>🎮</span> Abrir / Simular Operación Aquí
+          </button>
+        )}
       </div>
+
+      {/* ── COPILOTO / ASESOR EN VIVO SI LA OPERACIÓN ESTÁ ABIERTA ── */}
+      {activeTrade && (
+        <ActiveTradeAdvisorCard trade={activeTrade} />
+      )}
 
       {/* EXECUTIVE SUMMARY AT VERY TOP */}
       <ExecutiveSummaryCard signal={signal} />
@@ -152,6 +175,47 @@ export default function SignalDetailPage() {
           </p>
         </div>
       </header>
+
+      {/* ── WHALE FLOW RADAR SECTION ── */}
+      {signal.whale_flow && (
+        <section className={clsx(
+          "card p-4 sm:p-5 border space-y-2.5",
+          signal.whale_flow.bias === "WHALE_ACCUMULATION"
+            ? "border-emerald-500/40 bg-gradient-to-r from-emerald-950/20 via-slate-900 to-slate-950"
+            : signal.whale_flow.bias === "WHALE_DISTRIBUTION"
+            ? "border-rose-500/40 bg-gradient-to-r from-rose-950/20 via-slate-900 to-slate-950"
+            : "border-slate-800 bg-slate-900/60"
+        )}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🐳</span>
+              <div>
+                <h2 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-100 flex items-center gap-2">
+                  <span>Radar de Ballenas &amp; Smart Money</span>
+                  <span className={clsx(
+                    "rounded px-2 py-0.5 text-[10px] font-black uppercase",
+                    signal.whale_flow.bias === "WHALE_ACCUMULATION"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : signal.whale_flow.bias === "WHALE_DISTRIBUTION"
+                      ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                      : "bg-slate-800 text-slate-300"
+                  )}>
+                    {signal.whale_flow.badge_text}
+                  </span>
+                </h2>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 text-xs font-mono self-start sm:self-auto">
+              <span>Taker Ratio: <strong className="text-slate-100">{signal.whale_flow.taker_ratio}x</strong></span>
+              <span>Top Traders: <strong className="text-emerald-300">{(signal.whale_flow.top_trader_ratio * 100).toFixed(0)}% Long</strong></span>
+            </div>
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed font-medium">
+            {signal.whale_flow.narrative}
+          </p>
+        </section>
+      )}
 
       {/* ── DECISION GUIDE ── */}
       <section className="card p-5 space-y-4">
@@ -442,6 +506,12 @@ export default function SignalDetailPage() {
         signal={signal}
         isOpen={showCalculator}
         onClose={() => setShowCalculator(false)}
+      />
+
+      <PaperTradingModal
+        signal={signal}
+        isOpen={showPaperModal}
+        onClose={() => setShowPaperModal(false)}
       />
     </div>
   );

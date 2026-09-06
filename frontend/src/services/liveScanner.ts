@@ -1,5 +1,6 @@
 import { collection, doc, setDoc, deleteDoc, getDocs, Timestamp } from "firebase/firestore";
 import { db } from "./firebase";
+import { fetchWhaleFlow } from "./whaleTracker";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SYMBOLS — 13 pairs available on Kraken Futures (PF_ linear perpetuals)
@@ -312,11 +313,12 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
 
   for (const item of SYMBOLS) {
     try {
-      const [k15m, k1h, k4h, fundingRate] = await Promise.all([
+      const [k15m, k1h, k4h, fundingRate, whaleFlow] = await Promise.all([
         fetchKlines(item.binance, "15m", 100),
         fetchKlines(item.binance, "1h", 200),
         fetchKlines(item.binance, "4h", 100),
         fetchFundingRate(item.binance),
+        fetchWhaleFlow(item.binance),
       ]);
 
       // ── Extract series ──────────────────────────────────────────────────────
@@ -477,6 +479,35 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
         shortScore += 1.5;
       }
       votes.push({ name: `9. Velas+Funding`, vote: candleVote, weight: 1.5, value: fundingRate, explanation: `${candleExplanation} Funding (${(fundingRate * 100).toFixed(4)}%).` });
+
+      // PILAR 10: Flujo de Ballenas Institucionales & Smart Money (weight 2.5)
+      if (whaleFlow.isBullishWhale) {
+        votes.push({
+          name: "10. 🐳 Flujo de Ballenas",
+          vote: "LONG",
+          weight: 2.5,
+          value: whaleFlow.takerBuySellRatio,
+          explanation: whaleFlow.narrative,
+        });
+        longScore += 2.5;
+      } else if (whaleFlow.isBearishWhale) {
+        votes.push({
+          name: "10. 🐳 Flujo de Ballenas",
+          vote: "SHORT",
+          weight: 2.5,
+          value: whaleFlow.takerBuySellRatio,
+          explanation: whaleFlow.narrative,
+        });
+        shortScore += 2.5;
+      } else {
+        votes.push({
+          name: "10. Flujo de Ballenas",
+          vote: "NEUTRAL",
+          weight: 0.5,
+          value: whaleFlow.takerBuySellRatio,
+          explanation: `Flujo equilibrado (Taker Ratio: ${whaleFlow.takerBuySellRatio}x).`,
+        });
+      }
 
       // ── Score calculation ────────────────────────────────────────────────────
       // FIX #1: Remove LONG tie bias — SHORT wins on equal score
@@ -640,6 +671,13 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
           funding_rate: fundingRate,
           kraken_symbol: item.kraken,
           signal_type: signalTypeLabel,
+          whale_flow: {
+            taker_ratio: whaleFlow.takerBuySellRatio,
+            top_trader_ratio: whaleFlow.topTraderLongRatio,
+            bias: whaleFlow.whaleBias,
+            badge_text: whaleFlow.badgeText,
+            narrative: whaleFlow.narrative,
+          },
           min_tier: "free",
           created_at: Timestamp.now(),
         };
