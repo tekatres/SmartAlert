@@ -1,6 +1,13 @@
 import { collection, doc, setDoc, deleteDoc, getDocs, Timestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { fetchWhaleFlow } from "./whaleTracker";
+import {
+  computeRegimeGuard,
+  detectLiquiditySweep,
+  getMacroBlackout,
+  LiquiditySweepResult,
+  RegimeGuardResult,
+} from "./marketFilters";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SYMBOLS — 13 pairs available on Kraken Futures (PF_ linear perpetuals)
@@ -311,6 +318,46 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
   const newSignals: { id: string; data: any }[] = [];
   const newAlerts: { id: string; data: any }[] = [];
 
+  // ── PRE-FLIGHT: BTC BETA GUARD (EVALUATE BITCOIN MASTER HEALTH FIRST) ──
+  let btcDirection: "LONG" | "SHORT" | "NEUTRAL" = "NEUTRAL";
+  let btcStrength = 5;
+  const [macroBlackout, btcGuardState] = await Promise.all([
+    getMacroBlackout(),
+    (async (): Promise<{ direction: "LONG" | "SHORT" | "NEUTRAL"; strength: number }> => {
+      try {
+        const [btck15m, btck1h] = await Promise.all([
+          fetchKlines("BTCUSDT", "15m", 50),
+          fetchKlines("BTCUSDT", "1h", 100),
+        ]);
+        const btcCloses1h = btck1h.map((k: { close: number }) => k.close);
+        const btcPrice = btcCloses1h[btcCloses1h.length - 1];
+        const btcEma50 = calcEMA(btcCloses1h, 50);
+        const btcRsi1h = calcRSI(btcCloses1h, 14);
+        const btcRsi15m = calcRSI(btck15m.map((k: { close: number }) => k.close), 14);
+
+        if (btcPrice > btcEma50 && btcRsi1h > 50 && btcRsi15m > 46) {
+          return { direction: "LONG", strength: Math.min(10, Math.round(5 + (btcRsi1h - 50) / 5)) };
+        }
+        if (btcPrice < btcEma50 && btcRsi1h < 50 && btcRsi15m < 54) {
+          return { direction: "SHORT", strength: Math.min(10, Math.round(5 + (50 - btcRsi1h) / 5)) };
+        }
+      } catch (err) {
+        console.warn("Could not pre-evaluate BTC guard:", err);
+      }
+      return { direction: "NEUTRAL", strength: 5 };
+    })(),
+  ]);
+  btcDirection = btcGuardState.direction;
+  btcStrength = btcGuardState.strength;
+
+  // ── PRE-FLIGHT: MACRO BLACKOUT (REFUGIO / NO OPERAR) ──
+  // During high-impact macro events the engine enters shelter mode and emits
+  // NO signals/alerts: institutional algos drain the books and wick both ways.
+  if (macroBlackout.blocked) {
+    console.warn(`[liveScanner] ${macroBlackout.explanation}`);
+    return { scannedCount: 0, signalsFound: 0 };
+  }
+
   for (const item of SYMBOLS) {
     try {
       const [k15m, k1h, k4h, fundingRate, whaleFlow] = await Promise.all([
@@ -326,6 +373,9 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       const closes1h  = k1h.map((k: { close: number }) => k.close);
       const closes4h  = k4h.map((k: { close: number }) => k.close);
       const closes15m = k15m.map((k: { close: number }) => k.close);
+      const highs15m  = k15m.map((k: { high: number }) => k.high);
+      const lows15m   = k15m.map((k: { low: number }) => k.low);
+      const volumes15m = k15m.map((k: { volume: number }) => k.volume);
       const highs1h   = k1h.map((k: { high: number }) => k.high);
       const lows1h    = k1h.map((k: { low: number }) => k.low);
       const volumes1h = k1h.map((k: { volume: number }) => k.volume);
@@ -509,6 +559,42 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
         });
       }
 
+      // PILAR 11: 🗺️ Barrida de Liquidez / Stop-Hunt (weight 2)
+      const liquiditySweep: LiquiditySweepResult = detectLiquiditySweep(
+        highs15m,
+        lows15m,
+        closes15m,
+        volumes15m,
+      );
+      const sweepTrap: LiquiditySweepResult["trap"] = liquiditySweep.trap;
+      if (sweepTrap === "BEAR_SWEEP") {
+        votes.push({
+          name: "11. 🗺️ Barrida de Liquidez",
+          vote: "LONG",
+          weight: 2,
+          value: liquiditySweep.level,
+          explanation: liquiditySweep.narrative,
+        });
+        longScore += 2;
+      } else if (sweepTrap === "BULL_SWEEP") {
+        votes.push({
+          name: "11. 🗺️ Barrida de Liquidez",
+          vote: "SHORT",
+          weight: 2,
+          value: liquiditySweep.level,
+          explanation: liquiditySweep.narrative,
+        });
+        shortScore += 2;
+      } else {
+        votes.push({
+          name: "11. Barrida de Liquidez",
+          vote: "NEUTRAL",
+          weight: 0,
+          value: 0,
+          explanation: liquiditySweep.narrative,
+        });
+      }
+
       // ── Score calculation ────────────────────────────────────────────────────
       // FIX #1: Remove LONG tie bias — SHORT wins on equal score
       const direction: "LONG" | "SHORT" = longScore > shortScore ? "LONG" : "SHORT";
@@ -612,21 +698,62 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       // Rule 2: NEVER enter a SHORT if price is above EMA200 (bullish regime) or 4h is LONG
       const isCounterTrendShort = direction === "SHORT" && (aboveEma200 || dir4h === "LONG");
 
+      // Rule 3: 🛡️ BTC BETA GUARD (The Market Leader Shield)
+      // If BTC is in a clear SHORT trend, BLOCK or heavily penalize any altcoin LONG
+      const isBtcOpposingLong = item.symbol !== "BTC" && direction === "LONG" && btcDirection === "SHORT";
+      // If BTC is in a clear LONG trend, BLOCK or heavily penalize any altcoin SHORT
+      const isBtcOpposingShort = item.symbol !== "BTC" && direction === "SHORT" && btcDirection === "LONG";
+
       const opposes15mAnd4h = (direction === "SHORT" && dir15m === "LONG" && dir4h === "LONG") ||
                               (direction === "LONG" && dir15m === "SHORT" && dir4h === "SHORT");
 
+      // 🧮 REGIME GUARD: Choppiness Index + Weekend/low-volume trap days.
+      // Raises the minimum confluence required to publish a signal.
+      const regimeGuard: RegimeGuardResult = computeRegimeGuard(
+        closes1h,
+        highs1h,
+        lows1h,
+        volumeRatio,
+        minConfluenceThreshold,
+      );
+
       let effectiveConfluence = confluenceScore;
-      if (isCounterTrendLong || isCounterTrendShort) {
+      if (isBtcOpposingLong || isBtcOpposingShort) {
+        effectiveConfluence = Math.min(4, effectiveConfluence - 4); // Demote below entry threshold
+      } else if (isCounterTrendLong || isCounterTrendShort) {
         effectiveConfluence = Math.min(5, effectiveConfluence - 3); // Heavily penalize counter-trend trades
       } else if (opposes15mAnd4h && effectiveConfluence >= 9) {
         effectiveConfluence = 8; // Demote from High to Medium Confluence due to timeframe contradiction
       }
 
+      // BTC Guard metadata
+      const btcGuardStatus: "ALIGNED" | "BLOCKED" | "NEUTRAL" =
+        (isBtcOpposingLong || isBtcOpposingShort)
+          ? "BLOCKED"
+          : (btcDirection === direction)
+          ? "ALIGNED"
+          : "NEUTRAL";
+
+      const btcGuardExplanation =
+        btcGuardStatus === "BLOCKED"
+          ? `⚠️ BTC Beta Guard: Operación bloqueada porque Bitcoin está en tendencia ${btcDirection} (${btcStrength}/10). Alta probabilidad de arrastre del mercado.`
+          : btcGuardStatus === "ALIGNED"
+          ? `🛡️ BTC Beta Guard: Alineado con el líder. Bitcoin está ${btcDirection} (${btcStrength}/10) impulsando el mercado.`
+          : `🛡️ BTC Beta Guard: Bitcoin en rango neutral (${btcStrength}/10).`;
+
       let signalTypeLabel = "";
-      if (isCounterTrendLong) {
+      if (isBtcOpposingLong) {
+        signalTypeLabel = `LONG Bloqueado por BTC Guard (BTC en Tendencia Bajista)`;
+      } else if (isBtcOpposingShort) {
+        signalTypeLabel = `SHORT Bloqueado por BTC Guard (BTC en Tendencia Alcista)`;
+      } else if (isCounterTrendLong) {
         signalTypeLabel = `LONG Descartado (Tendencia General Bajista / Bajo EMA200)`;
       } else if (isCounterTrendShort) {
         signalTypeLabel = `SHORT Descartado (Tendencia General Alcista / Sobre EMA200)`;
+      } else if (sweepTrap === "BEAR_SWEEP" && direction === "LONG") {
+        signalTypeLabel = `LONG Post-Barrida de Liquidez (Stop-Hunt Absorbido)`;
+      } else if (sweepTrap === "BULL_SWEEP" && direction === "SHORT") {
+        signalTypeLabel = `SHORT Post-Barrida de Liquidez (Stop-Hunt Absorbido)`;
       } else if (effectiveConfluence >= 9 && !opposes15mAnd4h) {
         signalTypeLabel = `${direction} Alta Confluencia (9-12/12 — Señal Fuerte)`;
       } else if (effectiveConfluence >= 7) {
@@ -639,8 +766,8 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
         signalTypeLabel = `${direction} Descartar (<5/12 — Sin Confluencia)`;
       }
 
-      // Create trading signal document if confluence >= minConfluenceThreshold
-      if (effectiveConfluence >= minConfluenceThreshold) {
+      // Create trading signal document if confluence >= regime-adjusted threshold
+      if (effectiveConfluence >= regimeGuard.requiredConfluence) {
         const signalDoc = {
           coin_id: item.coin_id,
           symbol: item.symbol,
@@ -677,6 +804,29 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
             bias: whaleFlow.whaleBias,
             badge_text: whaleFlow.badgeText,
             narrative: whaleFlow.narrative,
+          },
+          btc_guard: {
+            status: btcGuardStatus,
+            btc_direction: btcDirection,
+            btc_strength: btcStrength,
+            explanation: btcGuardExplanation,
+          },
+          liquidity_sweep: sweepTrap
+            ? {
+                trap: sweepTrap,
+                level: liquiditySweep.level,
+                wick_pct: parseFloat(liquiditySweep.wickPct.toFixed(2)),
+                absorption: liquiditySweep.absorption,
+                narrative: liquiditySweep.narrative,
+              }
+            : null,
+          regime_guard: {
+            choppy: regimeGuard.choppy,
+            ci: regimeGuard.ci,
+            is_weekend: regimeGuard.isWeekend,
+            volume_ratio: regimeGuard.volumeRatio,
+            required_confluence: regimeGuard.requiredConfluence,
+            explanation: regimeGuard.explanation,
           },
           min_tier: "free",
           created_at: Timestamp.now(),

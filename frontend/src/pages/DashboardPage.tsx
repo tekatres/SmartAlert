@@ -20,6 +20,8 @@ import { ConfluenceHeatmap } from "@/components/ConfluenceHeatmap";
 import { PaperTradingModal } from "@/components/PaperTradingModal";
 import { PaperTradingPanel } from "@/components/PaperTradingPanel";
 import { ActiveTradeAdvisorCard } from "@/components/ActiveTradeAdvisorCard";
+import { BtcGuardBanner } from "@/components/BtcGuardBanner";
+import { MarketProtectionBanner } from "@/components/MarketProtectionBanner";
 import { fetchMarketSentiment, MarketSentimentData } from "@/services/marketSentiment";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
 
@@ -284,7 +286,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── COPILOTO / ASESOR EN VIVO DE POSICIONES ACTIVAS ── */}
+      {/* ---- BTC BETA GUARD (MARKET LEADER SHIELD) ---- */}
+      <BtcGuardBanner />
+
+      {/* ---- FILTROS DE PROTECCIÓN (MACRO + RÉGIMEN) ---- */}
+      <MarketProtectionBanner />
+
+      {/* ---- COPILOTO / ASESOR EN VIVO DE POSICIONES ACTIVAS ---- */}
       {openTrades.length > 0 && (
         <section className="space-y-3">
           <div className="flex items-center justify-between">

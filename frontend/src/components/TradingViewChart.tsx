@@ -42,7 +42,11 @@ export function TradingViewChart({
           allow_symbol_change: true,
           container_id: containerRef.current?.id,
           hide_side_toolbar: false,
-          studies: ["RSI@tv-basicstudies", "MASimple@tv-basicstudies"],
+          studies: [
+            "Volume@tv-basicstudies",
+            "RSI@tv-basicstudies",
+            "MASimple@tv-basicstudies",
+          ],
         });
       }
     };

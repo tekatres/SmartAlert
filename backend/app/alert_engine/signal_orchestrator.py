@@ -6,16 +6,18 @@ coins and runs the TradingSignalEngine on each one.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Dict, List, Optional
 
+from app.alert_engine.btc_guard import fetch_btc_guard
 from app.alert_engine.signal_engine import (
     SignalThresholds,
     TradingSignal,
     analyze,
 )
 from app.core.logging import get_logger
-from app.models.schemas import SignalVote, TradingSignalAlert, UserTier
-from app.services.binance_futures import MultiTimeframeKlines, fetch_multi_timeframe
+from app.models.schemas import BtcGuardInfo, SignalVote, TradingSignalAlert, UserTier
+from app.services.binance_futures import fetch_multi_timeframe
 
 logger = get_logger(__name__)
 
@@ -57,10 +59,25 @@ class SignalOrchestrator:
         logger.info("SignalOrchestrator: fetching klines for %d coins", len(coin_ids))
 
         try:
-            mtf_map: Dict[str, MultiTimeframeKlines] = await fetch_multi_timeframe(coin_ids)
+            mtf_map_task = fetch_multi_timeframe(coin_ids)
+            btc_guard_task = fetch_btc_guard()
+            mtf_map, btc_guard = await asyncio.gather(
+                mtf_map_task, btc_guard_task, return_exceptions=True
+            )
+            if isinstance(mtf_map, Exception):
+                raise mtf_map
+            if isinstance(btc_guard, Exception):
+                logger.warning("SignalOrchestrator: BTC guard fetch failed: %s", btc_guard)
+                btc_guard = None
         except Exception as e:
             logger.error("SignalOrchestrator: fetch_multi_timeframe failed: %s", e)
             return []
+
+        if btc_guard is not None:
+            logger.info(
+                "SignalOrchestrator: BTC Beta Guard = %s (%d/10)",
+                btc_guard.btc_direction, btc_guard.btc_strength,
+            )
 
         signals: List[TradingSignalAlert] = []
 
@@ -69,7 +86,13 @@ class SignalOrchestrator:
                 coin_name = COIN_NAMES.get(coin_id, coin_id.title())
                 prev_oi = self._prev_oi.get(mtf.symbol)
 
-                signal = analyze(mtf, coin_name, previous_oi=prev_oi, thresholds=thresholds)
+                signal = analyze(
+                    mtf,
+                    coin_name,
+                    previous_oi=prev_oi,
+                    thresholds=thresholds,
+                    btc_guard=btc_guard,
+                )
 
                 # Update stored OI for next cycle
                 if mtf.open_interest:
@@ -107,6 +130,15 @@ def _to_schema(signal: TradingSignal) -> TradingSignalAlert:
         for v in signal.votes
     ]
 
+    btc_guard = None
+    if signal.btc_guard is not None:
+        btc_guard = BtcGuardInfo(
+            status=signal.btc_guard.status,
+            btc_direction=signal.btc_guard.btc_direction,
+            btc_strength=signal.btc_guard.btc_strength,
+            explanation=signal.btc_guard.explanation,
+        )
+
     return TradingSignalAlert(
         id=signal.id,
         coin_id=signal.coin_id,
@@ -133,6 +165,7 @@ def _to_schema(signal: TradingSignal) -> TradingSignalAlert:
         funding_rate=signal.funding_rate,
         open_interest=signal.open_interest,
         signal_type=signal.signal_type,
+        btc_guard=btc_guard,
         created_at=signal.created_at,
         expires_at=signal.expires_at,
         min_tier=UserTier.FREE,

@@ -51,6 +51,13 @@ export interface SignalOutcome {
   checked_at?: string | null;
 }
 
+export interface BtcGuardInfo {
+  status: "ALIGNED" | "BLOCKED" | "NEUTRAL";
+  btc_direction: "LONG" | "SHORT" | "NEUTRAL";
+  btc_strength: number;
+  explanation: string;
+}
+
 export interface SignalEvaluationResponse {
   signal_id: string;
   outcome: SignalOutcome;
@@ -82,6 +89,7 @@ export interface TradingSignalPayload {
   funding_rate: number;
   open_interest: number;
   signal_type: string;
+  btc_guard?: BtcGuardInfo | null;
   min_tier: "free" | "premium";
   created_at: string; // ISO
   expires_at?: string | null;
