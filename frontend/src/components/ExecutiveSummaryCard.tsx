@@ -42,6 +42,8 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
     ).toFixed(4)
   );
   const hasAntiFomo = Boolean(signal.anti_fomo_warning);
+  const krakenSymbol = (signal as any).kraken_symbol || `PF_${signal.symbol === 'BTC' ? 'XBT' : signal.symbol}USD`;
+  const krakenUrl = `https://futures.kraken.com/trade/${krakenSymbol}`;
 
   return (
     <div className="rounded-2xl border-2 border-emerald-500/40 bg-slate-900/90 p-4 sm:p-5 space-y-3 sm:space-y-4 shadow-2xl">
@@ -54,7 +56,7 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Resumen Ejecutivo Futuros
+                Resumen Ejecutivo Futuros · Kraken Pro
               </span>
               <span className={clsx("rounded px-2 py-0.5 text-[10px] font-black uppercase", badgeColor)}>
                 {actionStatus}
@@ -71,7 +73,7 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
               )}
             </div>
             <h2 className="text-base sm:text-lg font-black text-slate-100 leading-tight">
-              ¿Qué hacer? — {signal.symbol} Guía Rápida
+              ¿Qué hacer? — {signal.symbol} ({krakenSymbol})
             </h2>
           </div>
         </div>
@@ -102,12 +104,12 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
         <p>{summaryText}</p>
       </div>
 
-      {/* 3 Key Numbers (Big & Clear) */}
+      {/* Key trade parameters */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
-        {/* Entry */}
+        {/* Entry Price */}
         <div className="rounded-xl bg-slate-950 p-3.5 border border-slate-800 space-y-1">
           <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            1. Precio de Entrada Recomendado
+            1. Precio de Entrada Sugerido
           </span>
           <span className="block font-mono text-xl font-black text-slate-100">
             ${entryPrice.toLocaleString("en-US", { maximumFractionDigits: 4 })}
@@ -151,9 +153,20 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
           <div className="rounded-lg bg-slate-950/70 p-2.5 border border-slate-800">
-            <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 1: Entrada y Margen</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 1: Entrada Kraken Pro</span>
+              <a
+                href={krakenUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] text-indigo-300 hover:text-indigo-200 font-bold flex items-center gap-0.5"
+                title={`Abrir contrato ${krakenSymbol} en Kraken Pro`}
+              >
+                Abrir {krakenSymbol} ↗
+              </a>
+            </div>
             <p className="mt-0.5 font-medium">
-              Abre posición <strong className={isLong ? "text-emerald-400 font-black" : "text-rose-400 font-black"}>{signal.direction}</strong> con margen <strong>Aislado (Isolated)</strong> a <strong className="font-mono text-slate-100">${entryPrice.toLocaleString("en-US", { maximumFractionDigits: 4 })}</strong> (Apalancamiento: <strong className="text-amber-300">{signal.leverage || 5}x</strong>).
+              Abre posición en <strong>Kraken Pro</strong> (<span className="text-indigo-300 font-mono font-bold">{krakenSymbol}</span>) en dirección <strong className={isLong ? "text-emerald-400 font-black" : "text-rose-400 font-black"}>{signal.direction}</strong> ({signal.leverage || 5}x Aislado) a <strong className="font-mono text-slate-100">${entryPrice.toLocaleString("en-US", { maximumFractionDigits: 4 })}</strong>.
             </p>
             <p className="mt-1 text-[11px] text-sky-300/90 font-mono">
               🎯 Zona Pullback: ${entryMin.toLocaleString("en-US", { maximumFractionDigits: 4 })} - ${entryMax.toLocaleString("en-US", { maximumFractionDigits: 4 })}

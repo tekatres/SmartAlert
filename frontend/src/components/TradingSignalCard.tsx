@@ -100,18 +100,18 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
 
   const [copySuccess, setCopySuccess] = useState(false);
 
-  const handleCopyBinanceOrder = () => {
+  const handleCopyKrakenOrder = () => {
     const text = `
-🎯 ORDEN BINANCE FUTURES - ${signal.symbol}
-• Par: ${signal.symbol}USDT (Perpetuo USD-M)
+🐙 ORDEN KRAKEN PRO FUTURES - ${signal.symbol}
+• Contrato: ${krakenSymbol} (o ${signal.symbol}/USD en Spot/Margin)
 • Dirección: ${signal.direction}
-• Apalancamiento: ${signal.leverage}x (Margen AISLADO)
-• Tipo de Orden: LIMIT en ${formatPrice(entryMin)} - ${formatPrice(entryMax)}
-• Entrada Sugerida: ${formatPrice(signal.entry_price)}
-• Stop Loss: ${formatPrice(signal.stop_loss)} (-${signal.sl_pct.toFixed(2)}%)
-• Take Profit 1 (Cerrar 50%): ${formatPrice(signal.take_profit_1)} (+${signal.tp1_pct.toFixed(2)}%)
+• Apalancamiento: ${signal.leverage}x (Margen Aislado)
+• Tipo de Orden: LIMIT en ${formatPrice(entryMin)} – ${formatPrice(entryMax)}
+• Entrada de Referencia: ${formatPrice(signal.entry_price)}
+• Stop Loss (Trigger): ${formatPrice(signal.stop_loss)} (-${signal.sl_pct.toFixed(2)}%)
+• Take Profit 1 (Reducir 50%): ${formatPrice(signal.take_profit_1)} (+${signal.tp1_pct.toFixed(2)}%)
 • Take Profit 2 (Cerrar 50% restante): ${formatPrice(signal.take_profit_2)} (+${signal.tp2_pct.toFixed(2)}%)
-• 🛡️ Regla Break-Even: Al tocar TP1, mover Stop Loss al precio de entrada (${formatPrice(signal.entry_price)}) para eliminar todo el riesgo.
+• 🛡️ Regla Break-Even: Al tocar TP1, mover Stop Loss a Entrada (${formatPrice(signal.entry_price)}) para Riesgo 0.
     `.trim();
 
     navigator.clipboard.writeText(text);
@@ -288,11 +288,11 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
               <span className="text-[11px] text-slate-400 truncate">{entryStatus.hint}</span>
             </div>
             <button
-              onClick={handleCopyBinanceOrder}
-              className="flex items-center gap-1 shrink-0 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 px-2.5 py-1 text-[11px] font-bold text-sky-300 transition-all self-end sm:self-auto shadow-sm"
-              title="Copiar parámetros exactos para la app de Binance"
+              onClick={handleCopyKrakenOrder}
+              className="flex items-center gap-1 shrink-0 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 px-2.5 py-1 text-[11px] font-bold text-indigo-300 transition-all self-end sm:self-auto shadow-sm"
+              title="Copiar parámetros exactos para Kraken Pro"
             >
-              <span>{copySuccess ? "✓ ¡Orden Copiada!" : "📋 Copiar Orden Binance"}</span>
+              <span>{copySuccess ? "✓ ¡Orden Copiada!" : "🐙 Copiar Orden Kraken Pro"}</span>
             </button>
           </div>
 
@@ -394,10 +394,10 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
                 href={krakenUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-lg bg-white/5 border border-white/10 px-2 py-1.5 text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors text-center col-span-1"
-                title="Abrir en Kraken Futures"
+                className="rounded-lg bg-indigo-500/20 border border-indigo-500/40 px-2 py-1.5 text-xs font-bold text-indigo-200 hover:bg-indigo-500/30 transition-colors text-center col-span-1 flex items-center justify-center gap-1"
+                title={`Abrir contrato ${krakenSymbol} en Kraken Pro`}
               >
-                🏛️ Kraken
+                🐙 Kraken Pro ↗
               </a>
 
               <Link
