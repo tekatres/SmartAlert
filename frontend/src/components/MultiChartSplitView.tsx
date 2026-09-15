@@ -37,7 +37,7 @@ export function MultiChartSplitView({ signals }: Props) {
               </span>
             </h2>
             <p className="text-xs text-slate-400">
-              Gráficos de velas de Binance Futures simultáneos con herramientas de análisis
+              Gráficos de velas simultáneos para Kraken Pro y Futuros con herramientas de análisis
             </p>
           </div>
         </div>

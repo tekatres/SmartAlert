@@ -5,17 +5,36 @@ interface Props {
   symbol: string; // e.g. "BTC", "ETH", "SOL"
   interval?: "15" | "60" | "240" | "D";
   height?: number;
+  initialExchange?: "kraken" | "binance";
 }
+
+const KRAKEN_TV_SYMBOLS: Record<string, string> = {
+  BTC: "KRAKEN:BTCUSD",
+  ETH: "KRAKEN:ETHUSD",
+  SOL: "KRAKEN:SOLUSD",
+  XRP: "KRAKEN:XRPUSD",
+  ADA: "KRAKEN:ADAUSD",
+  DOGE: "KRAKEN:DOGEUSD",
+  AVAX: "KRAKEN:AVAXUSD",
+  LINK: "KRAKEN:LINKUSD",
+  NEAR: "KRAKEN:NEARUSD",
+  OP: "KRAKEN:OPUSD",
+  ARB: "KRAKEN:ARBUSD",
+  APT: "KRAKEN:APTUSD",
+  INJ: "KRAKEN:INJUSD",
+};
 
 export function TradingViewChart({
   symbol,
   interval = "60",
   height = 400,
+  initialExchange = "kraken",
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeInterval, setActiveInterval] = useState(interval);
+  const [exchange, setExchange] = useState<"kraken" | "binance">(initialExchange);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -26,7 +45,12 @@ export function TradingViewChart({
     script.async = true;
     script.onload = () => {
       if (typeof window !== "undefined" && (window as any).TradingView) {
-        const tvSymbol = `BINANCE:${symbol.toUpperCase()}USDT.P`;
+        const upper = symbol.toUpperCase();
+        const tvSymbol =
+          exchange === "kraken"
+            ? KRAKEN_TV_SYMBOLS[upper] || `KRAKEN:${upper}USD`
+            : `BINANCE:${upper}USDT.P`;
+
         new (window as any).TradingView.widget({
           autosize: true,
           width: "100%",
@@ -52,7 +76,7 @@ export function TradingViewChart({
     };
 
     containerRef.current.appendChild(script);
-  }, [symbol, activeInterval, isFullscreen]);
+  }, [symbol, activeInterval, isFullscreen, exchange]);
 
   const toggleFullscreen = () => {
     if (!wrapperRef.current) return;
@@ -63,7 +87,7 @@ export function TradingViewChart({
     }
   };
 
-  const uniqueId = `tv_chart_${symbol.toLowerCase()}_${Math.random().toString(36).substr(2, 9)}`;
+  const uniqueId = `tv_chart_${symbol.toLowerCase()}_${exchange}_${Math.random().toString(36).substr(2, 9)}`;
 
   return (
     <div
@@ -75,11 +99,39 @@ export function TradingViewChart({
       style={{ height: isFullscreen ? "100vh" : `${height}px` }}
     >
       {/* Header bar */}
-      <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-2 px-1">
-        <div className="flex items-center gap-2">
-          <span className="font-black text-xs text-slate-200 uppercase tracking-wide">
-            📈 {symbol} / USDT (Futuros)
+      <div className="flex flex-wrap items-center justify-between border-b border-slate-800/80 pb-2 mb-2 px-1 gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Exchange Switcher */}
+          <div className="flex items-center rounded-lg bg-slate-900 p-0.5 border border-slate-800">
+            <button
+              onClick={() => setExchange("kraken")}
+              className={clsx(
+                "flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold transition-colors",
+                exchange === "kraken"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              <span>🐙</span> Kraken Pro
+            </button>
+            <button
+              onClick={() => setExchange("binance")}
+              className={clsx(
+                "rounded px-2 py-0.5 text-[10px] font-bold transition-colors",
+                exchange === "binance"
+                  ? "bg-amber-500 text-slate-950 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              )}
+            >
+              Binance
+            </button>
+          </div>
+
+          <span className="font-mono text-xs text-slate-200 uppercase tracking-wide font-bold">
+            {symbol} / {exchange === "kraken" ? "USD" : "USDT.P"}
           </span>
+
+          {/* Timeframe Buttons */}
           <div className="flex items-center gap-1 rounded-lg bg-slate-900 p-0.5 border border-slate-800">
             {(["15", "60", "240"] as const).map((tf) => (
               <button

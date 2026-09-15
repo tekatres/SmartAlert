@@ -38,7 +38,7 @@ export function DailyOpportunityBanner({
         `✅ Mercado analizado en vivo a las ${new Date().toLocaleTimeString("es-ES")}. ${result.signalsFound} oportunidad(es) encontradas.`
       );
     } catch (err) {
-      setScanMessage("❌ Error al conectar con Binance Futures.");
+      setScanMessage("❌ Error al conectar con el servidor de mercado.");
     } finally {
       setLocalScanning(false);
       setTimeout(() => setScanMessage(null), 5000);
@@ -71,7 +71,7 @@ export function DailyOpportunityBanner({
                 Protección de Capital: Esperando Oportunidad Confluente (≥7/12)
               </h2>
               <p className="mt-0.5 text-xs text-slate-400 max-w-xl">
-                El motor analiza los 7 pilares cuantitativos de Binance Futures. En mercados comprimidos o sin tendencia, la mejor estrategia es no arriesgar capital.
+                El motor analiza los 7 pilares cuantitativos para Kraken Pro y Futuros. En mercados comprimidos o sin tendencia, la mejor estrategia es no arriesgar capital.
               </p>
             </div>
           </div>
@@ -84,7 +84,7 @@ export function DailyOpportunityBanner({
             >
               {isScanning ? (
                 <>
-                  <span className="animate-spin">🔄</span> Escaneando Binance...
+                  <span className="animate-spin">🔄</span> Escaneando mercado...
                 </>
               ) : (
                 <>🔄 Analizar Mercado en Vivo Ahora</>
@@ -233,7 +233,7 @@ Confluencia: ${topSignal.confluence_score}/12 Pilares Cuantitativos
         <div className="rounded-xl border border-slate-800 bg-slate-950 p-2 shadow-2xl animate-in fade-in zoom-in duration-200">
           <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-800/80 mb-2">
             <span className="text-xs font-bold text-slate-300 flex items-center gap-2">
-              📈 Velas de {topSignal.symbol} (Binance Futures)
+              📈 Velas de {topSignal.symbol} (Tiempo Real · Kraken Pro / Futuros)
             </span>
             <span className="text-[10px] text-slate-500">Intervalo: 1 hora</span>
           </div>

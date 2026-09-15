@@ -6,6 +6,7 @@ import { TradingSignalDoc } from "@/types";
 import { PositionRiskCalculator } from "@/components/PositionRiskCalculator";
 import { PaperTradingModal } from "@/components/PaperTradingModal";
 import { TradingViewChart } from "@/components/TradingViewChart";
+import { KrakenExecutionModal } from "@/components/KrakenExecutionModal";
 import { SignalOutcomeBadge } from "@/components/SignalOutcomeBadge";
 import { usePaperTrading, PaperTrade } from "@/hooks/usePaperTrading";
 
@@ -43,6 +44,7 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
   const [showCalculator, setShowCalculator] = useState(false);
   const [showPaperModal, setShowPaperModal] = useState(false);
   const [showChart, setShowChart] = useState(false);
+  const [showKrakenGuide, setShowKrakenGuide] = useState(false);
   const { trades } = usePaperTrading();
   const activeTrade = trades.find(
     (t) => (t.signalId === signal.id || t.symbol === signal.symbol) && t.status === "OPEN"
@@ -390,14 +392,22 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
                 🧮 Riesgo
               </button>
 
+              <button
+                onClick={() => setShowKrakenGuide(true)}
+                className="rounded-lg bg-indigo-500/20 border border-indigo-500/40 px-2 py-1.5 text-xs font-bold text-indigo-300 hover:bg-indigo-500/30 transition-colors text-center"
+                title="Ver guía paso a paso para operar en Kraken Pro"
+              >
+                🐙 Guía Kraken
+              </button>
+
               <a
                 href={krakenUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-lg bg-indigo-500/20 border border-indigo-500/40 px-2 py-1.5 text-xs font-bold text-indigo-200 hover:bg-indigo-500/30 transition-colors text-center col-span-1 flex items-center justify-center gap-1"
+                className="rounded-lg bg-indigo-500/10 border border-indigo-500/30 px-2 py-1.5 text-xs font-bold text-indigo-300 hover:bg-indigo-500/20 transition-colors text-center col-span-1 flex items-center justify-center gap-1"
                 title={`Abrir contrato ${krakenSymbol} en Kraken Pro`}
               >
-                🐙 Kraken Pro ↗
+                <span>Terminal ↗</span>
               </a>
 
               <Link
@@ -426,6 +436,12 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
         signal={signal}
         isOpen={showPaperModal}
         onClose={() => setShowPaperModal(false)}
+      />
+
+      <KrakenExecutionModal
+        signal={signal}
+        isOpen={showKrakenGuide}
+        onClose={() => setShowKrakenGuide(false)}
       />
     </>
   );

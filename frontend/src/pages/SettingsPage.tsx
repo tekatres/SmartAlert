@@ -122,9 +122,48 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Ajustes</h1>
         <p className="text-sm text-slate-400">
-          Configura cómo Smart Alerts AI te notifica.
+          Configura cómo Smart Alerts AI te notifica y tus preferencias operativas.
         </p>
       </div>
+
+      <section className="card p-5 border border-indigo-500/30 bg-gradient-to-r from-indigo-950/30 via-slate-900 to-slate-950">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-xl">
+              🐙
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <span>Exchange Principal: Kraken Pro</span>
+                <span className="badge bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold">
+                  ACTIVO
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                Señales adaptadas a contratos perpetuos lineales Kraken (<code className="text-indigo-300">PF_*</code>) y spot margen (<code className="text-slate-300">*/USD</code>).
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-3 border-t border-slate-800 text-xs">
+          <div className="rounded-lg bg-slate-950 p-2.5 border border-slate-800/80">
+            <span className="text-[10px] text-slate-500 font-bold uppercase block">Comisión Maker (Limit)</span>
+            <span className="font-mono text-emerald-400 font-bold text-sm">0.02%</span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">Post-Only recomendado</span>
+          </div>
+          <div className="rounded-lg bg-slate-950 p-2.5 border border-slate-800/80">
+            <span className="text-[10px] text-slate-500 font-bold uppercase block">Stop Loss Trigger</span>
+            <span className="font-mono text-indigo-300 font-bold text-sm">Index Price</span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">Evita mechas falsas</span>
+          </div>
+          <div className="rounded-lg bg-slate-950 p-2.5 border border-slate-800/80">
+            <span className="text-[10px] text-slate-500 font-bold uppercase block">Protección de Orden</span>
+            <span className="font-mono text-amber-300 font-bold text-sm">Reduce-Only</span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">Cierra sin sobre-apalancar</span>
+          </div>
+        </div>
+      </section>
 
       <section className="card p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
