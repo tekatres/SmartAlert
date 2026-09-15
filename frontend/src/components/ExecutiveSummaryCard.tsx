@@ -31,6 +31,8 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
   }
 
   const confidencePct = Math.round((score / 12) * 100);
+  const phase = signal.market_phase || "TREND_IMPULSE";
+  const hasAntiFomo = Boolean(signal.anti_fomo_warning);
 
   return (
     <div className="rounded-2xl border-2 border-emerald-500/40 bg-slate-900/90 p-4 sm:p-5 space-y-3 sm:space-y-4 shadow-2xl">
@@ -43,11 +45,21 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Resumen Ejecutivo Simple
+                Resumen Ejecutivo Futuros
               </span>
               <span className={clsx("rounded px-2 py-0.5 text-[10px] font-black uppercase", badgeColor)}>
                 {actionStatus}
               </span>
+              {phase === "PULLBACK" && (
+                <span className="rounded bg-sky-500/20 border border-sky-500/40 px-2 py-0.5 text-[10px] font-black text-sky-300 uppercase">
+                  🎯 Entrada en Pullback
+                </span>
+              )}
+              {phase.startsWith("OVEREXTENDED") && (
+                <span className="rounded bg-amber-500/20 border border-amber-500/40 px-2 py-0.5 text-[10px] font-black text-amber-300 uppercase">
+                  ⚠️ Sobreextendido
+                </span>
+              )}
             </div>
             <h2 className="text-base sm:text-lg font-black text-slate-100 leading-tight">
               ¿Qué hacer? — {signal.symbol} Guía Rápida
@@ -62,6 +74,16 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
           </span>
         </div>
       </div>
+
+      {/* Anti-FOMO Warning Alert Banner if active */}
+      {hasAntiFomo && signal.anti_fomo_warning && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200 space-y-1">
+          <div className="flex items-center gap-2 font-black uppercase tracking-wider text-amber-400">
+            <span>🛡️</span> Filtro Anti-FOMO y Agotamiento
+          </div>
+          <p className="font-medium">{signal.anti_fomo_warning}</p>
+        </div>
+      )}
 
       {/* Main Verdict Box */}
       <div className={clsx("rounded-xl p-3.5 border text-xs leading-relaxed font-medium", actionBg)}>
@@ -124,12 +146,22 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
             <p className="mt-0.5 font-medium">
               Abre posición <strong className={isLong ? "text-emerald-400 font-black" : "text-rose-400 font-black"}>{signal.direction}</strong> con margen <strong>Aislado (Isolated)</strong> a <strong className="font-mono text-slate-100">${entryPrice.toLocaleString("en-US", { maximumFractionDigits: 4 })}</strong> (Apalancamiento: <strong className="text-amber-300">{signal.leverage || 5}x</strong>).
             </p>
+            {signal.entry_zone_min && signal.entry_zone_max ? (
+              <p className="mt-1 text-[11px] text-sky-300/90 font-mono">
+                🎯 Zona Pullback: ${signal.entry_zone_min.toLocaleString("en-US", { maximumFractionDigits: 4 })} - ${signal.entry_zone_max.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+              </p>
+            ) : null}
           </div>
           <div className="rounded-lg bg-slate-950/70 p-2.5 border border-slate-800">
-            <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 2: Protección Stop Loss</span>
+            <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 2: Protección Stop Loss & Liq</span>
             <p className="mt-0.5 font-medium">
               Pon orden SL en <strong className="font-mono text-rose-400 font-bold">${stopLoss.toLocaleString("en-US", { maximumFractionDigits: 4 })}</strong> (-{slPct.toFixed(2)}%). <span className="text-slate-400">Nunca muevas el SL en contra.</span>
             </p>
+            {signal.liquidation_price_est ? (
+              <p className="mt-1 text-[11px] text-slate-400 font-mono">
+                🛡️ Liq. estimada: <span className="text-amber-400">${signal.liquidation_price_est.toLocaleString("en-US", { maximumFractionDigits: 4 })}</span> (Protegido por SL)
+              </p>
+            ) : null}
           </div>
           <div className="rounded-lg bg-slate-950/70 p-2.5 border border-slate-800">
             <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 3: Salida Parcial TP1 (50%)</span>

@@ -84,6 +84,11 @@ class AlertEngine:
                     score_breakdown=breakdown,
                     include_breakdown=include_breakdown,
                 )
+                if ev.note:
+                    if alert.recommended_action:
+                        alert.recommended_action = f"{ev.note} {alert.recommended_action}"
+                    else:
+                        alert.recommended_action = ev.note
                 alerts.append(alert)
             except Exception as e:
                 logger.exception("AI enrichment failed for %s: %s", ev.current.coin_id, e)

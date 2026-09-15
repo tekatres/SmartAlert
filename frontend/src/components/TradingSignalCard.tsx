@@ -114,6 +114,28 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
                   <span className="rounded-md bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 text-xs font-bold text-amber-300 shrink-0">
                     {signal.leverage}x
                   </span>
+                  {signal.market_phase && (
+                    <span
+                      className={clsx(
+                        "rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-wider shrink-0",
+                        signal.market_phase === "PULLBACK"
+                          ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
+                          : signal.market_phase === "OVEREXTENDED"
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse font-black"
+                          : signal.market_phase === "TREND_IMPULSE"
+                          ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                          : "bg-slate-800 text-slate-400 border-slate-700"
+                      )}
+                    >
+                      {signal.market_phase === "PULLBACK"
+                        ? "🔄 PULLBACK"
+                        : signal.market_phase === "OVEREXTENDED"
+                        ? "⚠️ SOBREEXTENDIDO"
+                        : signal.market_phase === "TREND_IMPULSE"
+                        ? "⚡ IMPULSO"
+                        : "↔️ RANGO"}
+                    </span>
+                  )}
                   <span className="w-full sm:w-auto">{confluenceBadge}</span>
                   {activeTrade && (
                     <span className="rounded-md bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-[10px] font-black text-emerald-300 flex items-center gap-1 animate-pulse">
@@ -190,13 +212,41 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
             </div>
           </header>
 
+          {/* Anti-FOMO Warning Banner */}
+          {signal.anti_fomo_warning && (
+            <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-2.5 text-xs text-amber-300">
+              <span className="shrink-0 text-sm">⚠️</span>
+              <div>
+                <span className="font-bold">Anti-FOMO: </span>
+                <span className="text-amber-200/90">{signal.anti_fomo_warning}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Optimal Entry Pullback Zone */}
+          {signal.entry_zone_min && signal.entry_zone_max && (
+            <div className="flex items-center justify-between rounded-lg bg-indigo-950/40 border border-indigo-500/30 px-3 py-1.5 text-xs">
+              <div className="flex items-center gap-1.5 text-indigo-300 font-semibold">
+                <span>🎯</span>
+                <span>Zona Óptima de Entrada (Pullback):</span>
+              </div>
+              <div className="font-mono font-bold text-indigo-200">
+                {formatPrice(signal.entry_zone_min)} – {formatPrice(signal.entry_zone_max)}
+              </div>
+            </div>
+          )}
+
           {/* Trade levels */}
           <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-5 rounded-lg bg-slate-950/60 p-2.5 sm:p-3 border border-slate-800/80">
             <Stat label="Entrada" value={formatPrice(signal.entry_price)} />
             <Stat
-              label="Margen (200€)"
-              value={`~$${((4 / (signal.sl_pct / 100)) / Math.min(10, signal.leverage)).toFixed(1)}`}
-              tone="text-amber-300 font-bold"
+              label={signal.liquidation_price_est ? "Liq. Est." : "Margen (200€)"}
+              value={
+                signal.liquidation_price_est
+                  ? formatPrice(signal.liquidation_price_est)
+                  : `~$${((4 / (signal.sl_pct / 100)) / Math.min(10, signal.leverage)).toFixed(1)}`
+              }
+              tone={signal.liquidation_price_est ? "text-orange-400 font-mono" : "text-amber-300 font-bold"}
             />
             <Stat
               label="Stop-Loss"

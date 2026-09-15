@@ -38,7 +38,7 @@ logger = get_logger(__name__)
 # --- Configuration ----------------------------------------------------------
 
 MIN_CONFLUENCE = 8          # minimum votes needed out of 12 (institutional high-conviction)
-MIN_RISK_REWARD = 1.8       # minimum R:R to emit a signal (positive expected value)
+MIN_RISK_REWARD = 1.5       # minimum R:R to emit a signal (blended TP1/TP2 yields >= 2.0R)
 MIN_ADX = 20                # market must be trending
 MIN_VOLUME_RATIO = 1.4      # minimum volume ratio vs 20-period average
 ATR_SL_MULTIPLIER = 1.5     # stop-loss = entry ± ATR * 1.5
@@ -120,6 +120,13 @@ class TradingSignal:
     # Setup label (for display / notification title)
     signal_type: str = ""
 
+    # Futures Risk Management & Anti-FOMO fields
+    entry_zone_min: float = 0.0
+    entry_zone_max: float = 0.0
+    liquidation_price_est: float = 0.0
+    market_phase: str = "TREND_IMPULSE"  # TREND_IMPULSE | PULLBACK | OVEREXTENDED | OVEREXTENDED_DOWN
+    anti_fomo_warning: Optional[str] = None
+
     # BTC Beta Guard (market-leader correlation shield) metadata
     btc_guard: Optional[BtcGuardMeta] = None
 
@@ -134,7 +141,7 @@ class TradingSignal:
 # --- Voting functions -------------------------------------------------------
 
 def _vote_rsi_multi(ind: AllIndicators) -> VoteResult:
-    """RSI agreement across 3 timeframes — weight 2 (most reliable)."""
+    """RSI agreement across 3 timeframes with pullback and overbought detection — weight 2."""
     bullish = 0
     bearish = 0
     vals = []
@@ -148,15 +155,35 @@ def _vote_rsi_multi(ind: AllIndicators) -> VoteResult:
         elif r.is_overbought:
             bearish += 1
 
-    if bullish >= 2:
-        vote, expl = "LONG", f"RSI sobrevendido en {bullish}/3 timeframes ({', '.join(vals)}). Presión vendedora agotada."
-    elif bearish >= 2:
-        vote, expl = "SHORT", f"RSI sobrecomprado en {bearish}/3 timeframes ({', '.join(vals)}). Presión compradora agotada."
-    else:
-        vote, expl = "NEUTRAL", f"RSI en zona neutral ({', '.join(vals)}). Sin señal clara."
+    r1h = ind.rsi_1h.value if ind.rsi_1h else 50.0
+    r15m = ind.rsi_15m.value if ind.rsi_15m else 50.0
 
-    val = ind.rsi_1h.value if ind.rsi_1h else 50.0
-    return VoteResult(name="RSI Multi-Timeframe", vote=vote, weight=2, value=val, explanation=expl)
+    # Overbought warning filter: if RSI is extended (> 72), voting LONG is forbidden
+    if r1h > 72 or r15m > 75:
+        vote = "SHORT"
+        expl = f"RSI sobrecomprado extremo ({', '.join(vals)}). Zona de peligro de compra / agotamiento de momentum."
+    elif r1h < 28 or r15m < 25:
+        vote = "LONG"
+        expl = f"RSI sobrevendido extremo ({', '.join(vals)}). Zona de capitulación vendedora / agotamiento bajista."
+    elif bullish >= 2:
+        vote = "LONG"
+        expl = f"RSI sobrevendido en {bullish}/3 timeframes ({', '.join(vals)}). Presión vendedora agotada."
+    elif bearish >= 2:
+        vote = "SHORT"
+        expl = f"RSI sobrecomprado en {bearish}/3 timeframes ({', '.join(vals)}). Presión compradora agotada."
+    elif ind.rsi_1h and ind.rsi_1h.is_pullback_support and ind.rsi_15m and (38 <= ind.rsi_15m.value <= 55):
+        # Classic trend pullback support: 1h RSI holding 40-52 support while 15m bounces
+        vote = "LONG"
+        expl = f"RSI en zona de soporte de pullback ({', '.join(vals)}). Retroceso sano en tendencia alcista."
+    elif ind.rsi_1h and ind.rsi_1h.is_relief_resistance and ind.rsi_15m and (50 <= ind.rsi_15m.value <= 65):
+        # Classic relief rally resistance: 1h RSI capped at 48-60 resistance
+        vote = "SHORT"
+        expl = f"RSI en zona de resistencia de rebote ({', '.join(vals)}). Rebote vulnerable en tendencia bajista."
+    else:
+        vote = "NEUTRAL"
+        expl = f"RSI en zona neutral ({', '.join(vals)}). Sin señal clara."
+
+    return VoteResult(name="RSI Multi-Timeframe", vote=vote, weight=2, value=r1h, explanation=expl)
 
 
 def _vote_macd(ind: AllIndicators) -> VoteResult:
@@ -304,48 +331,62 @@ def _vote_obv(ind: AllIndicators) -> VoteResult:
 
 
 def _vote_vwap(ind: AllIndicators) -> VoteResult:
-    """Price vs VWAP — weight 1."""
+    """Price vs VWAP with mean-reversion guard — weight 1."""
     v = ind.vwap_1h
     if v is None:
         return VoteResult("VWAP 1h", "NEUTRAL", 1, 0.0, "VWAP no disponible.")
 
-    if v.price_above_vwap:
+    if v.is_overextended_above:
+        # Price is stretched too far above VWAP — mean reversion danger for longs!
+        vote = "SHORT"
+        expl = f"Precio ({v.current_price:.4f}) muy extendido sobre VWAP ({v.vwap:.4f}, +{v.distance_pct:.2f}%). Riesgo de corrección a la media."
+    elif v.is_overextended_below:
+        # Price is stretched too far below VWAP — mean reversion danger for shorts!
         vote = "LONG"
-        expl = f"Precio ({v.current_price:.4f}) sobre VWAP ({v.vwap:.4f}, +{v.distance_pct:.2f}%). Mercado en zona compradora."
+        expl = f"Precio ({v.current_price:.4f}) muy extendido bajo VWAP ({v.vwap:.4f}, {v.distance_pct:.2f}%). Riesgo de rebote técnico a la media."
+    elif v.is_pullback_zone and v.price_above_vwap:
+        vote = "LONG"
+        expl = f"Precio en zona óptima de test/rebote sobre VWAP ({v.vwap:.4f}, +{v.distance_pct:.2f}%). Soporte intradía clave."
+    elif v.is_pullback_zone and not v.price_above_vwap:
+        vote = "SHORT"
+        expl = f"Precio testeando VWAP desde abajo ({v.vwap:.4f}, {v.distance_pct:.2f}%). Resistencia intradía clave."
+    elif v.price_above_vwap:
+        vote = "LONG"
+        expl = f"Precio sobre VWAP ({v.vwap:.4f}, +{v.distance_pct:.2f}%). Control comprador."
     else:
         vote = "SHORT"
-        expl = f"Precio ({v.current_price:.4f}) bajo VWAP ({v.vwap:.4f}, {v.distance_pct:.2f}%). Mercado en zona vendedora."
+        expl = f"Precio bajo VWAP ({v.vwap:.4f}, {v.distance_pct:.2f}%). Control vendedor."
 
     return VoteResult("VWAP 1h", vote, 1, v.distance_pct, expl)
 
 
 def _vote_funding_rate(funding_rate: Optional[float]) -> VoteResult:
-    """Funding rate sentiment — weight 1. Negative = shorts dominant → contrarian LONG."""
+    """Funding rate sentiment — weight 1. Asymmetric crowd sentiment gate."""
     if funding_rate is None:
         return VoteResult("Funding Rate", "NEUTRAL", 1, 0.0, "Funding rate no disponible.")
 
     fr_pct = funding_rate * 100.0
-    if funding_rate <= -0.01:
+    if funding_rate <= -0.02:
         vote = "LONG"
-        expl = f"Funding rate muy negativo ({fr_pct:.4f}%). Shorts atrapados → presión de cierre alcista."
+        expl = f"Funding rate muy negativo ({fr_pct:.4f}%). Shorts masivamente atrapados → alto riesgo de short squeeze alcista."
     elif funding_rate < -0.005:
         vote = "LONG"
         expl = f"Funding rate negativo ({fr_pct:.4f}%). Más shorts que longs en el mercado."
-    elif funding_rate >= 0.01:
+    elif funding_rate >= 0.025:
         vote = "SHORT"
-        expl = f"Funding rate muy positivo ({fr_pct:.4f}%). Longs atrapados → presión de cierre bajista."
+        expl = f"Funding rate muy positivo ({fr_pct:.4f}%). Longs masivamente apalancados → alto riesgo de barrido/cascada de liquidaciones."
     elif funding_rate > 0.005:
         vote = "SHORT"
-        expl = f"Funding rate positivo ({fr_pct:.4f}%). Más longs que shorts en el mercado."
+        expl = f"Funding rate positivo ({fr_pct:.4f}%). Mercado sobrecalentado en compras."
     else:
         vote = "NEUTRAL"
-        expl = f"Funding rate neutro ({fr_pct:.4f}%). Sin sesgo claro de mercado."
+        expl = f"Funding rate neutro ({fr_pct:.4f}%). Sin sesgo claro de apalancamiento."
 
     return VoteResult("Funding Rate", vote, 1, fr_pct, expl)
 
 
 def _vote_open_interest(oi: Optional[float], oi_prev: Optional[float], price_change_pct: float) -> VoteResult:
-    """Open Interest trend — weight 1. Rising OI + price = real trend."""
+    """Open Interest 4-Quadrant Institutional Matrix — weight 1."""
     if oi is None:
         return VoteResult("Open Interest", "NEUTRAL", 1, 0.0, "Open Interest no disponible.")
 
@@ -354,20 +395,63 @@ def _vote_open_interest(oi: Optional[float], oi_prev: Optional[float], price_cha
     else:
         oi_change_pct = 0.0
 
-    if oi_change_pct > 2.0 and price_change_pct > 0:
+    # 4 Quadrants of Crypto Futures Market Structure:
+    # 1. Price UP + OI UP: Healthy new longs entering (Real trend)
+    if oi_change_pct > 1.5 and price_change_pct > 0.2:
         vote = "LONG"
-        expl = f"OI creciendo +{oi_change_pct:.2f}% con precio al alza. Nuevas posiciones largas entrando."
-    elif oi_change_pct > 2.0 and price_change_pct < 0:
+        expl = f"OI creciendo +{oi_change_pct:.2f}% con precio al alza (+{price_change_pct:.2f}%). Entrada de nuevo capital comprador."
+    # 2. Price UP + OI DOWN: Short covering rally running out of gas (Fake rally)
+    elif oi_change_pct < -1.5 and price_change_pct > 0.2:
         vote = "SHORT"
-        expl = f"OI creciendo +{oi_change_pct:.2f}% con precio a la baja. Nuevas posiciones cortas entrando."
-    elif oi_change_pct < -2.0:
-        vote = "NEUTRAL"
-        expl = f"OI cayendo {oi_change_pct:.2f}%. Cierre de posiciones, tendencia puede estar agotándose."
+        expl = f"Precio sube (+{price_change_pct:.2f}%) pero OI cae {oi_change_pct:.2f}%. Rally de solo cierre de cortos: falta demanda real, agotamiento cercano."
+    # 3. Price DOWN + OI UP: Aggressive new shorts entering
+    elif oi_change_pct > 1.5 and price_change_pct < -0.2:
+        vote = "SHORT"
+        expl = f"OI creciendo +{oi_change_pct:.2f}% con precio a la baja ({price_change_pct:.2f}%). Entrada agresiva de posiciones cortas."
+    # 4. Price DOWN + OI DOWN: Long liquidations / capitulation cascade (Bottoming)
+    elif oi_change_pct < -1.5 and price_change_pct < -0.2:
+        vote = "LONG"
+        expl = f"Liquidación masiva de largos (OI {oi_change_pct:.2f}%, precio {price_change_pct:.2f}%). Venta forzada agotándose, posible suelo de rebote."
     else:
         vote = "NEUTRAL"
         expl = f"OI sin cambios significativos ({oi_change_pct:+.2f}%). Mercado en equilibrio."
 
     return VoteResult("Open Interest", vote, 1, oi_change_pct, expl)
+
+
+def _vote_price_extension(ind: AllIndicators) -> VoteResult:
+    """Extension from EMA21 / VWAP (Anti-FOMO gate) — weight 2."""
+    ext = ind.price_extension
+    if ext is None:
+        return VoteResult("Anti-FOMO Extension", "NEUTRAL", 2, 0.0, "Extensión no disponible.")
+
+    if ext.is_overextended_bullish:
+        vote = "SHORT"
+        expl = (
+            f"Precio sobreextendido al alza (+{ext.extension_ema21_atr:.1f} ATR sobre EMA21). "
+            f"Zona de agotamiento de compradores. Prohibido entrar en LONG a mercado."
+        )
+    elif ext.is_overextended_bearish:
+        vote = "LONG"
+        expl = (
+            f"Precio sobreextendido a la baja ({ext.extension_ema21_atr:.1f} ATR bajo EMA21). "
+            f"Zona de agotamiento de vendedores. Prohibido entrar en SHORT a mercado."
+        )
+    elif ext.is_pullback_zone:
+        if ind.ema_cross_1h and ind.ema_cross_1h.is_bullish_alignment:
+            vote = "LONG"
+            expl = f"Precio en zona óptima de pullback sobre soporte EMA21/VWAP (+{ext.extension_ema21_atr:.1f} ATR). Excelente ratio riesgo/beneficio."
+        elif ind.ema_cross_1h and ind.ema_cross_1h.is_bearish_alignment:
+            vote = "SHORT"
+            expl = f"Precio en zona óptima de retroceso contra resistencia EMA21/VWAP ({ext.extension_ema21_atr:.1f} ATR). Excelente ratio riesgo/beneficio."
+        else:
+            vote = "NEUTRAL"
+            expl = f"Precio cerca de medias (+{ext.extension_ema21_atr:.1f} ATR). Consolidación neutral."
+    else:
+        vote = "NEUTRAL"
+        expl = f"Extensión normal (+{ext.extension_ema21_atr:.1f} ATR respecto a medias)."
+
+    return VoteResult("Anti-FOMO Extension", vote, 2, ext.extension_ema21_atr, expl)
 
 
 def _vote_cvd(ind: AllIndicators) -> VoteResult:
@@ -394,19 +478,41 @@ def _vote_cvd(ind: AllIndicators) -> VoteResult:
 
 # --- Risk / trade management ------------------------------------------------
 
-def _calculate_leverage(atr_pct_val: float) -> int:
-    """Recommend leverage inversely proportional to volatility.
+def _calculate_leverage_and_liquidation(
+    atr_pct_val: float,
+    entry: float,
+    stop_loss: float,
+    direction: str,
+) -> tuple[int, float]:
+    """Recommend leverage inversely proportional to volatility with liquidation protection.
 
-    Formula: leverage = floor(10 / atr_pct)
-    - atr_pct = 0.5% → 20x  (very low volatility, tight asset)
-    - atr_pct = 1.0% → 10x
-    - atr_pct = 2.0% →  5x
-    - atr_pct = 5.0% →  2x
+    Returns: (leverage, estimated_liquidation_price)
     """
-    if atr_pct_val <= 0:
-        return MIN_LEVERAGE
-    leverage = math.floor(10.0 / atr_pct_val)
-    return max(MIN_LEVERAGE, min(MAX_LEVERAGE, leverage))
+    if atr_pct_val <= 0 or entry <= 0:
+        return MIN_LEVERAGE, 0.0
+
+    raw_lev = math.floor(10.0 / atr_pct_val)
+    leverage = max(MIN_LEVERAGE, min(MAX_LEVERAGE, raw_lev))
+    sl_dist = abs(entry - stop_loss)
+
+    def _liq_price(lev: int) -> float:
+        mm_rate = 0.005  # Binance maintenance margin buffer (0.5%)
+        if direction == "LONG":
+            return entry * (1.0 - (1.0 / lev) + mm_rate)
+        else:
+            return entry * (1.0 + (1.0 / lev) - mm_rate)
+
+    liq = _liq_price(leverage)
+    liq_dist = abs(entry - liq)
+
+    # Safety guard: liquidation price must be at least 1.8x farther than stop loss
+    # to avoid unexpected wicks liquidating before stop loss triggers
+    while leverage > MIN_LEVERAGE and liq_dist < 1.8 * sl_dist:
+        leverage -= 1
+        liq = _liq_price(leverage)
+        liq_dist = abs(entry - liq)
+
+    return leverage, round(liq, 6)
 
 
 def _calculate_levels(
@@ -414,7 +520,7 @@ def _calculate_levels(
     atr_val: float,
     direction: str,
 ) -> tuple[float, float, float, float]:
-    """Compute stop-loss, TP1, TP2 and risk/reward ratio.
+    """Compute stop-loss, TP1, TP2 and blended risk/reward ratio.
 
     Returns: (stop_loss, take_profit_1, take_profit_2, risk_reward)
     """
@@ -431,7 +537,9 @@ def _calculate_levels(
         tp1 = entry - tp1_dist
         tp2 = entry - tp2_dist
 
-    rr = tp1_dist / sl_dist if sl_dist > 0 else 0.0
+    # Blended Risk to Reward ratio: 50% closed at TP1, 50% closed at TP2
+    blended_tp_dist = (0.5 * tp1_dist) + (0.5 * tp2_dist)
+    rr = blended_tp_dist / sl_dist if sl_dist > 0 else 0.0
     return sl, tp1, tp2, round(rr, 2)
 
 
@@ -497,6 +605,12 @@ class BarAnalysis:
     atr: float
     atr_pct: float
     leverage: int
+    liquidation_price_est: float
+    entry_zone_min: float
+    entry_zone_max: float
+    market_phase: str
+    anti_fomo_warning: Optional[str]
+    is_overextended: bool
     adx: float
     adx_result: Optional[ADXResult]
     votes: List[VoteResult] = field(default_factory=list)
@@ -545,6 +659,7 @@ def analyze_bar(
         _vote_adx(ind.adx_1h, MIN_ADX),  # default ADX vote; `decide` recomputes it
         _vote_obv(ind),
         _vote_vwap(ind),
+        _vote_price_extension(ind),
         _vote_funding_rate(funding_rate),
         _vote_open_interest(oi_current, previous_oi, price_change_pct),
         _vote_cvd(ind),
@@ -558,7 +673,39 @@ def analyze_bar(
     confluence_score = long_score if direction == "LONG" else short_score
 
     sl, tp1, tp2, rr = _calculate_levels(current_price, atr_val, direction)
-    leverage = _calculate_leverage(atr_pct_val)
+    leverage, liq_price = _calculate_leverage_and_liquidation(atr_pct_val, current_price, sl, direction)
+
+    # Anti-FOMO / Overextension analysis
+    ext = ind.price_extension
+    is_overextended = False
+    entry_min = round(current_price * 0.995, 4)
+    entry_max = round(current_price * 1.005, 4)
+    warning = None
+    market_phase = "TREND_IMPULSE"
+
+    if ext is not None:
+        entry_min = ext.pullback_zone_min
+        entry_max = ext.pullback_zone_max
+        if ext.is_overextended_bullish:
+            is_overextended = True
+            market_phase = "OVEREXTENDED"
+            rsi_val = ind.rsi_1h.value if ind.rsi_1h else 70.0
+            warning = (
+                f"Activo sobrecomprado y extendido (+{ext.extension_ema21_atr:.1f} ATR sobre EMA21, "
+                f"RSI 1h={rsi_val:.0f}). Riesgo severo de corrección/trampa de toros. NO comprar a mercado. "
+                f"Zona óptima para orden limitada (Pullback): ${entry_min:.4f} - ${entry_max:.4f}"
+            )
+        elif ext.is_overextended_bearish:
+            is_overextended = True
+            market_phase = "OVEREXTENDED_DOWN"
+            rsi_val = ind.rsi_1h.value if ind.rsi_1h else 30.0
+            warning = (
+                f"Activo sobrevendido y extendido ({ext.extension_ema21_atr:.1f} ATR bajo EMA21, "
+                f"RSI 1h={rsi_val:.0f}). Riesgo de rebote de alivio/short squeeze. NO vender en mínimos. "
+                f"Zona óptima para orden limitada en retroceso: ${entry_min:.4f} - ${entry_max:.4f}"
+            )
+        elif ext.is_pullback_zone:
+            market_phase = "PULLBACK"
 
     return BarAnalysis(
         coin_id=mtf.coin_id,
@@ -576,6 +723,12 @@ def analyze_bar(
         atr=atr_val,
         atr_pct=atr_pct_val,
         leverage=leverage,
+        liquidation_price_est=liq_price,
+        entry_zone_min=entry_min,
+        entry_zone_max=entry_max,
+        market_phase=market_phase,
+        anti_fomo_warning=warning,
+        is_overextended=is_overextended,
         adx=ind.adx_1h.adx if ind.adx_1h else 0.0,
         adx_result=ind.adx_1h,
         votes=votes,
@@ -613,6 +766,22 @@ def decide(
 
     direction: SignalDirection = "LONG" if long_score >= short_score else "SHORT"
     confluence_score = long_score if direction == "LONG" else short_score
+
+    # ── ANTI-FOMO / EXHAUSTION GUARD (The "Ya ha subido mucho" Filter) ───────
+    # Never buy at the peak of a pump or short at the bottom of a panic dump.
+    if direction == "LONG" and bar.is_overextended and bar.market_phase == "OVEREXTENDED":
+        logger.info(
+            "analyze %s: LONG blocked by Anti-FOMO gate (asset overextended at top). Pullback required.",
+            mtf.symbol,
+        )
+        return None
+
+    if direction == "SHORT" and bar.is_overextended and bar.market_phase == "OVEREXTENDED_DOWN":
+        logger.info(
+            "analyze %s: SHORT blocked by Anti-Panic gate (asset overextended at bottom). Relief required.",
+            mtf.symbol,
+        )
+        return None
 
     # ── BTC BETA GUARD (The Market Leader Shield) ────────────────────────────
     # Never trade against the market leader: block LONGs when BTC is bearish
@@ -679,6 +848,11 @@ def decide(
         funding_rate=bar.funding_rate,
         open_interest=bar.open_interest,
         signal_type=signal_type,
+        entry_zone_min=bar.entry_zone_min,
+        entry_zone_max=bar.entry_zone_max,
+        liquidation_price_est=bar.liquidation_price_est,
+        market_phase=bar.market_phase,
+        anti_fomo_warning=bar.anti_fomo_warning,
         btc_guard=btc_guard_meta,
     )
 

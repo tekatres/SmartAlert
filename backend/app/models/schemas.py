@@ -234,6 +234,11 @@ class TradingSignalAlert(BaseModel):
     open_interest: float = 0.0
 
     signal_type: str = ""
+    entry_zone_min: float = 0.0
+    entry_zone_max: float = 0.0
+    liquidation_price_est: float = 0.0
+    market_phase: str = "TREND_IMPULSE"
+    anti_fomo_warning: Optional[str] = None
     btc_guard: Optional[BtcGuardInfo] = None
 
     created_at: datetime

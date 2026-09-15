@@ -90,9 +90,9 @@ class MockAIProvider(AIProvider):
             summary = f"{sym} {direction_word} un {abs_change:.2f}% en los últimos minutos, {vol_descriptor}."
             explanation = (
                 "Movimiento alcista con confirmación de volumen. "
-                "Posible continuación si el precio mantiene el nivel actual."
+                "Posible continuación tras consolidación o toma de liquidez."
             )
-            action = "Considera entry en retroceso hacia soporte cercano con stop ajustado."
+            action = "Alerta de sobrecompra: NO perseguir el precio a mercado. Espera retroceso (pullback) a soporte para entrar con R:R favorable."
         elif alert_type == AlertType.PRICE_DUMP:
             title = f"🔻 {sym} cae {abs_change:.2f}%"
             summary = f"{sym} {direction_word} un {abs_change:.2f}% en los últimos minutos, {vol_descriptor}."
@@ -100,7 +100,7 @@ class MockAIProvider(AIProvider):
                 "Presión vendedora detectada. "
                 "Podría tratarse de una toma de liquidez antes de un rebote o continuación bajista."
             )
-            action = "Evita comprar en caída fuerte. Espera confirmación de reversión."
+            action = "Evita comprar en cuchillo cayendo. Espera agotamiento de ventas y señal de absorción."
         elif alert_type == AlertType.VOLUME_SPIKE:
             title = f"📊 {sym} registra pico de volumen"
             summary = (
@@ -109,14 +109,14 @@ class MockAIProvider(AIProvider):
             explanation = (
                 "Pico de actividad inusual. Frecuentemente precede a movimientos direccionales fuertes."
             )
-            action = "Observa el precio en los próximos minutos para confirmar dirección."
+            action = "Observa el precio en los próximos minutos para confirmar dirección antes de entrar."
         else:  # BREAKOUT
             title = f"💥 {sym} rompe estructura"
             summary = f"{sym} {direction_word} un {abs_change:.2f}% rompiendo rango reciente."
             explanation = (
                 "Ruptura de rango con volumen. La estructura técnica sugiere un nuevo tramo direccional."
             )
-            action = "Valida el volumen en el cierre de la vela antes de operar."
+            action = "No compres en el pico del breakout. Espera retest del nivel roto con stop ajustado."
 
         if score >= 75:
             explanation += " Alta calidad estadística: prioriza esta alerta."

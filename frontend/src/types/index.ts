@@ -166,6 +166,11 @@ export interface TradingSignalDoc {
     explanation: string;
   };
   signal_type: string;
+  entry_zone_min?: number;
+  entry_zone_max?: number;
+  liquidation_price_est?: number;
+  market_phase?: "TREND_IMPULSE" | "PULLBACK" | "OVEREXTENDED" | "OVEREXTENDED_DOWN" | string;
+  anti_fomo_warning?: string | null;
   min_tier: UserTier;
   created_at: { seconds: number; nanoseconds: number } | string;
   expires_at?: { seconds: number; nanoseconds: number } | string | null;

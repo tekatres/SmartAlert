@@ -20,6 +20,7 @@ class RawEvent:
     change_pct: float
     volume_ratio: float
     rule_name: str
+    note: Optional[str] = None
 
     def key(self) -> str:
         return f"{self.alert_type.value}:{self.current.coin_id}"
@@ -56,6 +57,9 @@ class PriceSurgeRule(Rule):
         if change >= threshold:
             severity = _severity_for(change, threshold)
             vol_ratio = _volume_ratio(current)
+            note = None
+            if change >= 3.5:
+                note = f"Subida rápida (+{change:.1f}%): Advertencia Anti-FOMO. No perseguir el precio a mercado; esperar retroceso a soporte."
             return RawEvent(
                 alert_type=AlertType.PRICE_SURGE,
                 severity=severity,
@@ -64,6 +68,7 @@ class PriceSurgeRule(Rule):
                 change_pct=change,
                 volume_ratio=vol_ratio,
                 rule_name=self.name,
+                note=note,
             )
         return None
 
@@ -81,6 +86,9 @@ class PriceDumpRule(Rule):
         if change <= -threshold:
             severity = _severity_for(abs(change), threshold)
             vol_ratio = _volume_ratio(current)
+            note = None
+            if abs(change) >= 3.5:
+                note = f"Caída rápida ({change:.1f}%): Advertencia de capitulación. Evitar venta en pánico en el suelo."
             return RawEvent(
                 alert_type=AlertType.PRICE_DUMP,
                 severity=severity,
@@ -89,6 +97,7 @@ class PriceDumpRule(Rule):
                 change_pct=change,
                 volume_ratio=vol_ratio,
                 rule_name=self.name,
+                note=note,
             )
         return None
 
@@ -141,6 +150,10 @@ class BreakoutRule(Rule):
         change = ((current.price_usd - previous.price_usd) / previous.price_usd) * 100.0
         vol_ratio = _volume_ratio(current)
         if abs(change) >= 4.5 * mult and vol_ratio >= 1.5:
+            note = (
+                f"Ruptura de rango ({'+' if change > 0 else ''}{change:.1f}%): Evitar entrar en el pico de la vela. "
+                "Esperar confirmación y retest de la zona de soporte/resistencia rota."
+            )
             return RawEvent(
                 alert_type=AlertType.BREAKOUT,
                 severity=_severity_for(abs(change), 4.5 * mult),
@@ -149,6 +162,7 @@ class BreakoutRule(Rule):
                 change_pct=change,
                 volume_ratio=vol_ratio,
                 rule_name=self.name,
+                note=note,
             )
         return None
 

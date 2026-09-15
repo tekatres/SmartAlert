@@ -82,27 +82,26 @@ class RSIResult(NamedTuple):
     is_overbought: bool   # > 70
     is_near_oversold: bool   # 30-40 — pre-señal alcista
     is_near_overbought: bool  # 60-70 — pre-señal bajista
+    is_pullback_support: bool  # 40-52 — soporte clásico en tendencia alcista sana
+    is_relief_resistance: bool # 48-60 — resistencia clásica en rebote bajista
     divergence_bullish: bool  # precio hace mínimo más bajo pero RSI no → reversión alcista
     divergence_bearish: bool  # precio hace máximo más alto pero RSI no → reversión bajista
 
 
-def rsi(candles: List[Candle], period: int = 14) -> Optional[RSIResult]:
-    """Compute RSI using Wilder's smoothing method with divergence detection."""
-    closes = _closes(candles)
+def rsi_series_values(closes: List[float], period: int = 14) -> List[float]:
+    """Compute the full RSI series using Wilder's smoothing method in O(N)."""
     if len(closes) < period + 1:
-        return None
+        return []
 
     deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
     gains = [max(d, 0.0) for d in deltas]
     losses = [abs(min(d, 0.0)) for d in deltas]
 
-    # Initial averages (simple mean for seed)
+    # Initial averages (seed)
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
 
-    # Wilder smoothing — build full RSI series for divergence detection
     rsi_series: List[float] = []
-    # Seed value
     if avg_loss == 0:
         rsi_series.append(100.0)
     else:
@@ -117,6 +116,16 @@ def rsi(candles: List[Candle], period: int = 14) -> Optional[RSIResult]:
         else:
             rs = avg_gain / avg_loss
             rsi_series.append(100.0 - (100.0 / (1.0 + rs)))
+
+    return rsi_series
+
+
+def rsi(candles: List[Candle], period: int = 14) -> Optional[RSIResult]:
+    """Compute RSI using Wilder's smoothing method with divergence detection."""
+    closes = _closes(candles)
+    rsi_series = rsi_series_values(closes, period)
+    if not rsi_series:
+        return None
 
     value = rsi_series[-1]
 
@@ -147,6 +156,8 @@ def rsi(candles: List[Candle], period: int = 14) -> Optional[RSIResult]:
         is_overbought=value > 70,
         is_near_oversold=(30 <= value < 40),
         is_near_overbought=(60 < value <= 70),
+        is_pullback_support=(40.0 <= value <= 52.0),
+        is_relief_resistance=(48.0 <= value <= 60.0),
         divergence_bullish=div_bullish,
         divergence_bearish=div_bearish,
     )
@@ -351,30 +362,14 @@ def stochastic_rsi(
     smooth_k: int = 3,
     smooth_d: int = 3,
 ) -> Optional[StochRSIResult]:
-    """Compute Stochastic RSI."""
+    """Compute Stochastic RSI in O(N) using true Wilder smoothed RSI series."""
     closes = _closes(candles)
-    min_len = rsi_period + stoch_period + smooth_k + smooth_d + 5
-    if len(closes) < min_len:
+    rsi_series = rsi_series_values(closes, rsi_period)
+    min_len = stoch_period + smooth_k + smooth_d
+    if len(rsi_series) < min_len:
         return None
 
-    # Compute rolling RSI series
-    rsi_series: List[float] = []
-    for i in range(rsi_period, len(closes)):
-        subset = [Candle(
-            timestamp=candles[j].timestamp,
-            open=candles[j].open, high=candles[j].high,
-            low=candles[j].low, close=closes[j],
-            volume=candles[j].volume, quote_volume=candles[j].quote_volume,
-            taker_buy_volume=candles[j].taker_buy_volume,
-        ) for j in range(i - rsi_period, i + 1)]
-        r = rsi(subset, rsi_period)
-        if r is not None:
-            rsi_series.append(r.value)
-
-    if len(rsi_series) < stoch_period:
-        return None
-
-    # Stochastic of RSI
+    # Stochastic of RSI: %K = (RSI - min(RSI)) / (max(RSI) - min(RSI)) * 100
     stoch_k_raw: List[float] = []
     for i in range(stoch_period - 1, len(rsi_series)):
         window = rsi_series[i - stoch_period + 1:i + 1]
@@ -509,13 +504,14 @@ def adx(candles: List[Candle], period: int = 14) -> Optional[ADXResult]:
 class OBVResult(NamedTuple):
     current: float
     slope: float           # linear slope of last 10 OBV values (positive = accumulation)
-    is_rising: bool        # OBV trending up
+    is_rising: bool        # OBV trending up (volume confirms price)
+    above_ema: bool        # OBV above its 20-period EMA (healthy trend)
     divergence_bullish: bool   # price falling but OBV rising
     divergence_bearish: bool   # price rising but OBV falling
 
 
 def obv(candles: List[Candle]) -> Optional[OBVResult]:
-    """Compute On-Balance Volume and detect divergences."""
+    """Compute On-Balance Volume and detect divergences with stationary volume scaling."""
     if len(candles) < 20:
         return None
 
@@ -545,16 +541,22 @@ def obv(candles: List[Candle]) -> Optional[OBVResult]:
     price_change = closes[-1] - closes[-window]
     obv_change = obv_series[-1] - obv_series[-window]
 
-    # Neutral zone: slope is insignificant relative to the OBV magnitude
-    obv_magnitude = abs(obv_series[-1]) if obv_series[-1] != 0 else 1.0
-    slope_threshold = obv_magnitude * 0.005  # 0.5% of current OBV value
-    is_rising_meaningful = slope > slope_threshold
-    is_falling_meaningful = slope < -slope_threshold
+    # 20-period EMA of OBV for robust trend determination
+    obv_ema_series = ema(obv_series, 20)
+    obv_ema_val = obv_ema_series[-1] if obv_ema_series and not math.isnan(obv_ema_series[-1]) else obv_series[-1]
+    above_ema = obv_series[-1] >= obv_ema_val
+
+    # Normalize slope by recent 20-period average volume (stationary threshold)
+    recent_volumes = volumes[-20:]
+    avg_vol = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 1.0
+    slope_threshold = avg_vol * 0.05
+    is_rising_meaningful = slope > slope_threshold or (slope > 0 and above_ema)
 
     return OBVResult(
         current=round(obv_series[-1], 2),
         slope=round(slope, 4),
         is_rising=is_rising_meaningful,
+        above_ema=above_ema,
         divergence_bullish=(price_change < 0 and obv_change > 0),
         divergence_bearish=(price_change > 0 and obv_change < 0),
     )
@@ -569,16 +571,21 @@ class VWAPResult(NamedTuple):
     current_price: float
     price_above_vwap: bool   # bullish: price > VWAP
     distance_pct: float      # % distance from VWAP (positive = above)
+    is_overextended_above: bool  # price > VWAP by more than 2.2% (FOMO caution)
+    is_overextended_below: bool  # price < VWAP by more than 2.2% (Panic caution)
+    is_pullback_zone: bool       # price within 0.75% of VWAP (optimal retest/entry)
 
 
-def vwap(candles: List[Candle]) -> Optional[VWAPResult]:
-    """Compute VWAP over the provided candles (intraday session)."""
+def vwap(candles: List[Candle], session_candles: int = 24) -> Optional[VWAPResult]:
+    """Compute VWAP over the provided candles (intraday 24h session)."""
     if not candles:
         return None
 
+    # Use last `session_candles` (e.g. 24 1h candles = 1 rolling day) for true intraday VWAP
+    window = candles[-session_candles:] if len(candles) >= session_candles else candles
     total_pv = 0.0
     total_vol = 0.0
-    for c in candles:
+    for c in window:
         typical_price = (c.high + c.low + c.close) / 3.0
         total_pv += typical_price * c.quote_volume
         total_vol += c.quote_volume
@@ -595,6 +602,9 @@ def vwap(candles: List[Candle]) -> Optional[VWAPResult]:
         current_price=round(current, 6),
         price_above_vwap=current > vwap_val,
         distance_pct=round(distance, 4),
+        is_overextended_above=distance > 2.2,
+        is_overextended_below=distance < -2.2,
+        is_pullback_zone=abs(distance) <= 0.75,
     )
 
 
@@ -606,6 +616,7 @@ class CVDResult(NamedTuple):
     cumulative: float     # total buy pressure minus sell pressure
     slope: float          # trend of CVD over last 10 candles
     is_rising: bool       # more buying than selling recently
+    above_ema: bool       # CVD above its 20-period EMA
     divergence_bullish: bool  # price down but CVD rising
     divergence_bearish: bool  # price up but CVD falling
 
@@ -645,17 +656,73 @@ def cvd(candles: List[Candle]) -> Optional[CVDResult]:
     price_change = closes[-1] - closes[-window]
     cvd_change = cvd_series[-1] - cvd_series[-window]
 
-    # Neutral zone: slope insignificant relative to CVD magnitude
-    cvd_magnitude = abs(cvd_series[-1]) if cvd_series[-1] != 0 else 1.0
-    slope_threshold = cvd_magnitude * 0.005  # 0.5% of current CVD value
-    is_rising_meaningful = slope > slope_threshold
+    # 20-period EMA of CVD
+    cvd_ema = ema(cvd_series, 20)
+    cvd_ema_val = cvd_ema[-1] if cvd_ema and not math.isnan(cvd_ema[-1]) else cvd_series[-1]
+    above_ema = cvd_series[-1] >= cvd_ema_val
+
+    # Normalize by average volume
+    volumes = _volumes(candles)
+    avg_vol = sum(volumes[-20:]) / 20.0 if len(volumes) >= 20 else 1.0
+    slope_threshold = avg_vol * 0.05
+    is_rising_meaningful = slope > slope_threshold or (slope > 0 and above_ema)
 
     return CVDResult(
         cumulative=round(cvd_series[-1], 2),
         slope=round(slope, 4),
         is_rising=is_rising_meaningful,
+        above_ema=above_ema,
         divergence_bullish=(price_change < 0 and cvd_change > 0),
         divergence_bearish=(price_change > 0 and cvd_change < 0),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Price Extension & Pullback Detection (Anti-FOMO Guard)
+# ---------------------------------------------------------------------------
+
+class PriceExtensionResult(NamedTuple):
+    extension_ema21_atr: float     # (price - ema21) / atr
+    extension_vwap_atr: float      # (price - vwap) / atr
+    is_overextended_bullish: bool  # extension > 2.0 ATR (FOMO risk, do not buy top)
+    is_overextended_bearish: bool  # extension < -2.0 ATR (Panic dump, do not short bottom)
+    is_pullback_zone: bool         # -0.7 <= extension_ema21_atr <= 1.0 (healthy pullback to support)
+    pullback_zone_min: float       # suggested limit buy range min
+    pullback_zone_max: float       # suggested limit buy range max
+
+
+def price_extension(
+    current_price: float,
+    ema21_val: Optional[float],
+    vwap_val: Optional[float],
+    atr_val: Optional[float],
+) -> Optional[PriceExtensionResult]:
+    """Measure price distance from dynamic supports in ATR units (Anti-FOMO filter)."""
+    if atr_val is None or atr_val <= 0:
+        return None
+
+    ema_ref = ema21_val if ema21_val is not None else current_price
+    vwap_ref = vwap_val if vwap_val is not None else current_price
+
+    ext_ema21 = (current_price - ema_ref) / atr_val
+    ext_vwap = (current_price - vwap_ref) / atr_val
+
+    is_overextended_up = ext_ema21 > 2.2 and ext_vwap > 1.8
+    is_overextended_down = ext_ema21 < -2.2 and ext_vwap < -1.8
+    is_pullback = (-0.7 <= ext_ema21 <= 1.0)
+
+    # Pullback support zone around EMA21 and VWAP
+    pullback_min = round(min(ema_ref, vwap_ref) - 0.25 * atr_val, 4)
+    pullback_max = round(max(ema_ref, vwap_ref) + 0.35 * atr_val, 4)
+
+    return PriceExtensionResult(
+        extension_ema21_atr=round(ext_ema21, 2),
+        extension_vwap_atr=round(ext_vwap, 2),
+        is_overextended_bullish=is_overextended_up,
+        is_overextended_bearish=is_overextended_down,
+        is_pullback_zone=is_pullback,
+        pullback_zone_min=pullback_min,
+        pullback_zone_max=pullback_max,
     )
 
 
@@ -767,6 +834,7 @@ class AllIndicators(NamedTuple):
     ema_cross_1h: Optional[EMACrossResult]
     volume_ratio_1h: Optional[float]    # current vol vs 20-period avg (confirmation gate)
     volume_ratio_15m: Optional[float]   # same for 15m (entry timing)
+    price_extension: Optional[PriceExtensionResult]  # distance from dynamic support (Anti-FOMO)
 
 
 def compute_all(
@@ -775,20 +843,35 @@ def compute_all(
     candles_4h: list,
 ) -> AllIndicators:
     """Compute all indicators from multi-timeframe candle data."""
+    atr_1h_val = atr(candles_1h)
+    ema_cross_val = ema_cross(candles_1h)
+    vwap_val = vwap(candles_1h)
+    current_price = candles_1h[-1].close if candles_1h else 0.0
+
+    ext_val = None
+    if current_price > 0 and atr_1h_val is not None and ema_cross_val is not None:
+        ext_val = price_extension(
+            current_price=current_price,
+            ema21_val=ema_cross_val.ema21,
+            vwap_val=vwap_val.vwap if vwap_val else None,
+            atr_val=atr_1h_val,
+        )
+
     return AllIndicators(
         rsi_15m=rsi(candles_15m),
         rsi_1h=rsi(candles_1h),
         rsi_4h=rsi(candles_4h),
         macd_1h=macd(candles_1h),
         bollinger_1h=bollinger_bands(candles_1h),
-        atr_1h=atr(candles_1h),
+        atr_1h=atr_1h_val,
         atr_pct_1h=atr_pct(candles_1h),
         stoch_rsi_15m=stochastic_rsi(candles_15m),
         adx_1h=adx(candles_1h),
         obv_1h=obv(candles_1h),
-        vwap_1h=vwap(candles_1h),
+        vwap_1h=vwap_val,
         cvd_1h=cvd(candles_1h),
-        ema_cross_1h=ema_cross(candles_1h),
+        ema_cross_1h=ema_cross_val,
         volume_ratio_1h=volume_ratio(candles_1h),
         volume_ratio_15m=volume_ratio(candles_15m),
+        price_extension=ext_val,
     )
