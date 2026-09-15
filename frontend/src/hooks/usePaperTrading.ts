@@ -521,7 +521,6 @@ export function usePaperTrading() {
     });
   };
 
-<<<<<<< HEAD
   /** Close a percentage of a position (25%, 50%, 75%) */
   const closePartial = (tradeId: string, pct: number, livePrice: number) => {
     setAccount((prev) => {

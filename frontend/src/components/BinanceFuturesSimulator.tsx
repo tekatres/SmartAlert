@@ -542,10 +542,6 @@ export function BinanceFuturesSimulator({ signals }: { signals: TradingSignalDoc
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const slPct = activeSignal ? activeSignal.sl_pct : 2.5;
-  const tp1Pct = activeSignal ? activeSignal.tp1_pct : 3.5;
-  const tp2Pct = activeSignal ? activeSignal.tp2_pct : 7.0;
-
   const handleOrder = (direction: "LONG" | "SHORT") => (params: {
     orderType: OrderType;
     marginMode: MarginMode;
