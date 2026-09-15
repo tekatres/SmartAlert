@@ -43,6 +43,10 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
   const [showCalculator, setShowCalculator] = useState(false);
   const [showPaperModal, setShowPaperModal] = useState(false);
   const [showChart, setShowChart] = useState(false);
+  const { trades } = usePaperTrading();
+  const activeTrade = trades.find(
+    (t) => (t.signalId === signal.id || t.symbol === signal.symbol) && t.status === "OPEN"
+  );
   const isLong = signal.direction === "LONG";
   const dirColor = isLong
     ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
@@ -111,6 +115,63 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
                     {signal.leverage}x
                   </span>
                   <span className="w-full sm:w-auto">{confluenceBadge}</span>
+                  {activeTrade && (
+                    <span className="rounded-md bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-[10px] font-black text-emerald-300 flex items-center gap-1 animate-pulse">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                      EN VIVO: POSICIÓN ABIERTA
+                    </span>
+                  )}
+                  {signal.whale_flow && signal.whale_flow.bias !== "NEUTRAL" && (
+                    <span
+                      className={clsx(
+                        "rounded-md border px-2 py-0.5 text-[10px] font-black tracking-wider flex items-center gap-1 shrink-0",
+                        signal.whale_flow.bias === "WHALE_ACCUMULATION"
+                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                          : "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                      )}
+                      title={signal.whale_flow.narrative}
+                    >
+                      {signal.whale_flow.badge_text}
+                    </span>
+                  )}
+                  {signal.btc_guard && signal.symbol !== "BTC" && (
+                    <span
+                      className={clsx(
+                        "rounded-md border px-2 py-0.5 text-[10px] font-bold tracking-wider flex items-center gap-1 shrink-0",
+                        signal.btc_guard.status === "ALIGNED"
+                          ? "bg-sky-500/10 text-sky-300 border-sky-500/30"
+                          : signal.btc_guard.status === "BLOCKED"
+                          ? "bg-rose-500/20 text-rose-400 border-rose-500/40 font-black"
+                          : "bg-slate-800 text-slate-400 border-slate-700"
+                      )}
+                      title={signal.btc_guard.explanation}
+                    >
+                      <span>🛡️ BTC Guard:</span> {signal.btc_guard.status === "ALIGNED" ? "Alineado ✓" : signal.btc_guard.status === "BLOCKED" ? "Bloqueado ✕" : "Neutral"}
+                    </span>
+                  )}
+                  {signal.liquidity_sweep && (
+                    <span
+                      className={clsx(
+                        "rounded-md border px-2 py-0.5 text-[10px] font-black tracking-wider flex items-center gap-1 shrink-0",
+                        signal.liquidity_sweep.trap === "BEAR_SWEEP"
+                          ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                          : signal.liquidity_sweep.trap === "BULL_SWEEP"
+                          ? "bg-rose-500/10 text-rose-300 border-rose-500/30"
+                          : "bg-slate-800 text-slate-500 border-slate-700"
+                      )}
+                      title={signal.liquidity_sweep.narrative}
+                    >
+                      🗺️ Liquidity Sweep
+                    </span>
+                  )}
+                  {signal.regime_guard && (signal.regime_guard.choppy || signal.regime_guard.is_weekend) && (
+                    <span
+                      className="rounded-md border px-2 py-0.5 text-[10px] font-black tracking-wider flex items-center gap-1 shrink-0 bg-amber-500/10 text-amber-300 border-amber-500/30"
+                      title={signal.regime_guard.explanation}
+                    >
+                      🧮 Reg. {signal.regime_guard.choppy ? `Choppy ${signal.regime_guard.ci}` : "Fin de Semana"} · Umbral {signal.regime_guard.required_confluence}/12
+                    </span>
+                  )}
                   <SignalOutcomeBadge outcome={signal.outcome} />
                 </div>
                 <p className="mt-1 text-xs text-slate-400 truncate">
@@ -215,9 +276,14 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
 
               <Link
                 to={`/signals/${signal.id}`}
-                className="rounded-lg bg-brand-500/20 border border-brand-500/40 px-2 py-1.5 text-xs font-bold text-brand-300 hover:bg-brand-500/30 transition-colors text-center col-span-2 sm:col-span-1"
+                className={clsx(
+                  "rounded-lg border px-2 py-1.5 text-xs font-bold transition-colors text-center col-span-2 sm:col-span-1",
+                  activeTrade
+                    ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/30 animate-pulse"
+                    : "bg-brand-500/20 border-brand-500/40 text-brand-300 hover:bg-brand-500/30"
+                )}
               >
-                Ver Detalle →
+                {activeTrade ? "🧠 Copiloto en Vivo →" : "Ver Detalle →"}
               </Link>
             </div>
           </footer>

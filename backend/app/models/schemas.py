@@ -155,6 +155,17 @@ class SignalVote(BaseModel):
     explanation: str
 
 
+class BtcGuardInfo(BaseModel):
+    """BTC Beta Guard metadata attached to every trading signal.
+
+    Bitcoin is the market leader; its trend gates altcoin trades.
+    """
+    status: Literal["ALIGNED", "BLOCKED", "NEUTRAL"]
+    btc_direction: Literal["LONG", "SHORT", "NEUTRAL"]
+    btc_strength: int = Field(ge=0, le=10)
+    explanation: str
+
+
 class SignalOutcome(BaseModel):
     """Tracks what actually happened after a trading signal fired.
 
@@ -223,6 +234,7 @@ class TradingSignalAlert(BaseModel):
     open_interest: float = 0.0
 
     signal_type: str = ""
+    btc_guard: Optional[BtcGuardInfo] = None
 
     created_at: datetime
     expires_at: Optional[datetime] = None

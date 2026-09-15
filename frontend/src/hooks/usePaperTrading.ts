@@ -521,6 +521,7 @@ export function usePaperTrading() {
     });
   };
 
+<<<<<<< HEAD
   /** Close a percentage of a position (25%, 50%, 75%) */
   const closePartial = (tradeId: string, pct: number, livePrice: number) => {
     setAccount((prev) => {
@@ -572,6 +573,21 @@ export function usePaperTrading() {
     });
   };
 
+  const updateTradeStopLoss = (tradeId: string, newStopLoss: number) => {
+    setAccount((prev) => {
+      const trade = prev.trades.find((t) => t.id === tradeId);
+      if (!trade) return prev;
+      const updated: PaperTrade = {
+        ...trade,
+        stopLoss: newStopLoss,
+      };
+      return {
+        ...prev,
+        trades: prev.trades.map((t) => (t.id === tradeId ? updated : t)),
+      };
+    });
+  };
+
   const cancelPendingOrder = (orderId: string) => {
     setAccount((prev) => {
       const order = prev.pendingOrders.find((o) => o.id === orderId);
@@ -586,7 +602,6 @@ export function usePaperTrading() {
       };
     });
   };
-
   const resetAccount = () => {
     localStorage.removeItem(STORAGE_KEY_BALANCE);
     localStorage.removeItem(STORAGE_KEY_TRADES);
@@ -647,6 +662,7 @@ export function usePaperTrading() {
     openTradeParams,
     closeTrade,
     closePartial,
+    updateTradeStopLoss,
     cancelPendingOrder,
     checkAndFillPendingOrders,
     resetAccount,

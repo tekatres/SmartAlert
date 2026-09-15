@@ -137,6 +137,34 @@ export interface TradingSignalDoc {
   bias_4h: string;
   funding_rate: number;
   open_interest: number;
+  whale_flow?: {
+    taker_ratio: number;
+    top_trader_ratio: number;
+    bias: "WHALE_ACCUMULATION" | "WHALE_DISTRIBUTION" | "NEUTRAL";
+    badge_text: string;
+    narrative: string;
+  };
+  btc_guard?: {
+    status: "ALIGNED" | "BLOCKED" | "NEUTRAL";
+    btc_direction: "LONG" | "SHORT" | "NEUTRAL";
+    btc_strength: number; // 0 to 10
+    explanation: string;
+  };
+  liquidity_sweep?: {
+    trap: "BEAR_SWEEP" | "BULL_SWEEP" | null;
+    level: number;
+    wick_pct: number;
+    absorption: boolean;
+    narrative: string;
+  } | null;
+  regime_guard?: {
+    choppy: boolean;
+    ci: number;
+    is_weekend: boolean;
+    volume_ratio: number;
+    required_confluence: number;
+    explanation: string;
+  };
   signal_type: string;
   min_tier: UserTier;
   created_at: { seconds: number; nanoseconds: number } | string;

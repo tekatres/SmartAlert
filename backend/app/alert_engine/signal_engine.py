@@ -19,6 +19,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Literal, Optional
 
+from app.alert_engine.btc_guard import (
+    BTC_COIN_ID,
+    BtcGuardMeta,
+    BtcGuardState,
+    build_btc_guard_meta,
+)
 from app.alert_engine.indicators import (
     ADXResult,
     AllIndicators,
@@ -113,6 +119,9 @@ class TradingSignal:
 
     # Setup label (for display / notification title)
     signal_type: str = ""
+
+    # BTC Beta Guard (market-leader correlation shield) metadata
+    btc_guard: Optional[BtcGuardMeta] = None
 
     # Lifecycle
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -585,6 +594,7 @@ def decide(
     coin_name: str,
     bar: BarAnalysis,
     thresholds: Optional[SignalThresholds] = None,
+    btc_guard: Optional[BtcGuardState] = None,
 ) -> Optional[TradingSignal]:
     """Turn a BarAnalysis into a TradignSignal if it passes the configured gates."""
     t = thresholds or SignalThresholds()
@@ -604,6 +614,25 @@ def decide(
     direction: SignalDirection = "LONG" if long_score >= short_score else "SHORT"
     confluence_score = long_score if direction == "LONG" else short_score
 
+    # ── BTC BETA GUARD (The Market Leader Shield) ────────────────────────────
+    # Never trade against the market leader: block LONGs when BTC is bearish
+    # and SHORTs when BTC is in a confirmed bullish breakout. Bitcoin itself
+    # is never gated.
+    if (
+        btc_guard is not None
+        and btc_guard.btc_direction in ("LONG", "SHORT")
+        and mtf.coin_id != BTC_COIN_ID
+        and (
+            (direction == "LONG" and btc_guard.btc_direction == "SHORT")
+            or (direction == "SHORT" and btc_guard.btc_direction == "LONG")
+        )
+    ):
+        logger.info(
+            "analyze %s: %s signal BLOCKED by BTC Beta Guard (BTC %s, strength %d/10)",
+            mtf.symbol, direction, btc_guard.btc_direction, btc_guard.btc_strength,
+        )
+        return None
+
     if confluence_score < t.min_confluence:
         logger.debug(
             "analyze %s: confluence %d/%d < %d threshold",
@@ -617,6 +646,11 @@ def decide(
 
     confidence = confluence_score / total_weight if total_weight > 0 else 0.0
     signal_type = _label_signal(votes, direction)
+    btc_guard_meta: Optional[BtcGuardMeta] = (
+        build_btc_guard_meta(btc_guard, direction)
+        if btc_guard is not None
+        else None
+    )
     now = datetime.now(timezone.utc)
 
     signal = TradingSignal(
@@ -645,6 +679,7 @@ def decide(
         funding_rate=bar.funding_rate,
         open_interest=bar.open_interest,
         signal_type=signal_type,
+        btc_guard=btc_guard_meta,
     )
 
     logger.info(
@@ -662,19 +697,21 @@ def analyze(
     coin_name: str,
     previous_oi: Optional[float] = None,
     thresholds: Optional[SignalThresholds] = None,
+    btc_guard: Optional[BtcGuardState] = None,
 ) -> Optional[TradingSignal]:
     """Analyze a coin's multi-timeframe data and return a TradingSignal or None.
 
     Returns None when:
     - Not enough data to compute indicators
     - ADX < threshold (no trend — never trade a ranging market)
+    - BTC Beta Guard blocks the direction (counter to the market leader)
     - Confluence < threshold (weighted votes)
     - Risk/Reward < threshold
     """
     bar = analyze_bar(mtf, previous_oi=previous_oi)
     if bar is None:
         return None
-    return decide(mtf, coin_name, bar, thresholds)
+    return decide(mtf, coin_name, bar, thresholds, btc_guard)
 
 
 def _make_signal_id(coin_id: str, direction: str, ts: datetime) -> str:

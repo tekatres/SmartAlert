@@ -11,8 +11,11 @@ import { TradingViewChart } from "@/components/TradingViewChart";
 import { SignalOutcomeBadge } from "@/components/SignalOutcomeBadge";
 import { SignalDecisionGuide } from "@/components/SignalDecisionGuide";
 import { ExecutiveSummaryCard } from "@/components/ExecutiveSummaryCard";
+import { ActiveTradeAdvisorCard } from "@/components/ActiveTradeAdvisorCard";
+import { PaperTradingModal } from "@/components/PaperTradingModal";
 import { fetchMarketSentiment } from "@/services/marketSentiment";
 import { useSignalSetupStats } from "@/hooks/useSignalStats";
+import { usePaperTrading } from "@/hooks/usePaperTrading";
 
 export default function SignalDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -20,9 +23,11 @@ export default function SignalDetailPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
+  const [showPaperModal, setShowPaperModal] = useState(false);
   const [sentimentValue, setSentimentValue] = useState<number>(50);
 
   const { stats: setupStats, winrate } = useSignalSetupStats(signal?.signal_type || "");
+  const { trades } = usePaperTrading();
 
   useEffect(() => {
     fetchMarketSentiment().then((s) => setSentimentValue(s.fearAndGreedValue));
@@ -83,13 +88,31 @@ export default function SignalDetailPage() {
   const shortVotes = signal.votes.filter((v) => v.vote === "SHORT");
   const neutralVotes = signal.votes.filter((v) => v.vote === "NEUTRAL");
 
+  // Check if user has an open position on this symbol
+  const activeTrade = trades.find(
+    (t) => (t.signalId === signal.id || t.symbol === signal.symbol) && t.status === "OPEN"
+  );
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div>
+      <div className="flex items-center justify-between">
         <Link to="/" className="text-xs text-slate-500 hover:text-slate-300">
           ← Volver al dashboard
         </Link>
+        {!activeTrade && (
+          <button
+            onClick={() => setShowPaperModal(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition-all shadow-sm"
+          >
+            <span>🎮</span> Abrir / Simular Operación Aquí
+          </button>
+        )}
       </div>
+
+      {/* ── COPILOTO / ASESOR EN VIVO SI LA OPERACIÓN ESTÁ ABIERTA ── */}
+      {activeTrade && (
+        <ActiveTradeAdvisorCard trade={activeTrade} />
+      )}
 
       {/* EXECUTIVE SUMMARY AT VERY TOP */}
       <ExecutiveSummaryCard signal={signal} />
@@ -152,6 +175,150 @@ export default function SignalDetailPage() {
           </p>
         </div>
       </header>
+
+      {/* ── BTC BETA GUARD (MARKET LEADER SHIELD) ── */}
+      {signal.btc_guard && (
+        <section className={clsx(
+          "card p-4 sm:p-5 border space-y-2",
+          signal.btc_guard.status === "ALIGNED"
+            ? "border-emerald-500/40 bg-emerald-950/20"
+            : signal.btc_guard.status === "BLOCKED"
+            ? "border-rose-500/40 bg-rose-950/20"
+            : "border-slate-800 bg-slate-900/60"
+        )}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-lg">{signal.btc_guard.status === "BLOCKED" ? "⚠️" : "🛡️"}</span>
+            <h2 className="text-sm font-black uppercase tracking-wider text-slate-100">
+              BTC Beta Guard
+            </h2>
+            <span className={clsx(
+              "rounded px-2 py-0.5 text-[10px] font-black uppercase border",
+              signal.btc_guard.status === "ALIGNED"
+                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                : signal.btc_guard.status === "BLOCKED"
+                ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                : "bg-slate-800 text-slate-400 border-slate-700"
+            )}>
+              {signal.btc_guard.status === "ALIGNED" ? "Alineado ✓" : signal.btc_guard.status === "BLOCKED" ? "Bloqueado ✕" : "Neutral"}
+            </span>
+            <span className="text-xs text-slate-400">
+              BTC {signal.btc_guard.btc_direction} ({signal.btc_guard.btc_strength}/10)
+            </span>
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            {signal.btc_guard.explanation}
+          </p>
+        </section>
+      )}
+
+      {/* ── LIQUIDITY SWEEP / STOP-HUNT ── */}
+      {signal.liquidity_sweep && signal.liquidity_sweep.trap && (
+        <section className={clsx(
+          "card p-4 sm:p-5 border space-y-2",
+          signal.liquidity_sweep.trap === "BEAR_SWEEP"
+            ? "border-emerald-500/40 bg-emerald-950/20"
+            : "border-rose-500/40 bg-rose-950/20"
+        )}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-lg">🗺️</span>
+            <h2 className="text-sm font-black uppercase tracking-wider text-slate-100">
+              Barrida de Liquidez (Stop-Hunt)
+            </h2>
+            <span className={clsx(
+              "rounded px-2 py-0.5 text-[10px] font-black uppercase border",
+              signal.liquidity_sweep.trap === "BEAR_SWEEP"
+                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                : "bg-rose-500/20 text-rose-300 border-rose-500/40"
+            )}>
+              {signal.liquidity_sweep.trap === "BEAR_SWEEP" ? "Trampa Bajista → Ballenas COMPRAN" : "Trampa Alcista → Ballenas VENDEN"}
+            </span>
+            <span className="text-xs text-slate-400 font-mono">
+              Nivel ${signal.liquidity_sweep.level?.toFixed(4)} · Mecha {signal.liquidity_sweep.wick_pct}% · {signal.liquidity_sweep.absorption ? "✅ Absorción de volumen" : "⚠️ Sin absorción confirmada"}
+            </span>
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            {signal.liquidity_sweep.narrative}
+          </p>
+        </section>
+      )}
+
+      {/* ── REGIMEN DE MERCADO / GUARD ── */}
+      {signal.regime_guard && (
+        <section className={clsx(
+          "card p-4 sm:p-5 border space-y-2",
+          signal.regime_guard.choppy || signal.regime_guard.is_weekend
+            ? "border-amber-500/40 bg-amber-950/20"
+            : "border-slate-800 bg-slate-900/60"
+        )}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-lg">🧮</span>
+            <h2 className="text-sm font-black uppercase tracking-wider text-slate-100">
+              Régimen de Mercado
+            </h2>
+            <span className={clsx(
+              "rounded px-2 py-0.5 text-[10px] font-black uppercase border",
+              signal.regime_guard.choppy
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                : signal.regime_guard.is_weekend
+                ? "bg-amber-500/10 text-amber-200 border-amber-500/30"
+                : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+            )}>
+              {signal.regime_guard.choppy
+                ? `Choppy ${signal.regime_guard.ci}`
+                : signal.regime_guard.is_weekend
+                ? "Fin de Semana"
+                : "Régimen Normal"}
+            </span>
+            <span className="text-xs text-slate-400 font-mono">
+              Confluencia mínima exigida: {signal.regime_guard.required_confluence}/12 · Vol {((signal.regime_guard.volume_ratio ?? 1) * 100).toFixed(0)}% del promedio
+            </span>
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            {signal.regime_guard.explanation}
+          </p>
+        </section>
+      )}
+
+      {/* ── WHALE FLOW RADAR SECTION ── */}
+      {signal.whale_flow && (
+        <section className={clsx(
+          "card p-4 sm:p-5 border space-y-2.5",
+          signal.whale_flow.bias === "WHALE_ACCUMULATION"
+            ? "border-emerald-500/40 bg-gradient-to-r from-emerald-950/20 via-slate-900 to-slate-950"
+            : signal.whale_flow.bias === "WHALE_DISTRIBUTION"
+            ? "border-rose-500/40 bg-gradient-to-r from-rose-950/20 via-slate-900 to-slate-950"
+            : "border-slate-800 bg-slate-900/60"
+        )}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🐳</span>
+              <div>
+                <h2 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-100 flex items-center gap-2">
+                  <span>Radar de Ballenas &amp; Smart Money</span>
+                  <span className={clsx(
+                    "rounded px-2 py-0.5 text-[10px] font-black uppercase",
+                    signal.whale_flow.bias === "WHALE_ACCUMULATION"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : signal.whale_flow.bias === "WHALE_DISTRIBUTION"
+                      ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                      : "bg-slate-800 text-slate-300"
+                  )}>
+                    {signal.whale_flow.badge_text}
+                  </span>
+                </h2>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 text-xs font-mono self-start sm:self-auto">
+              <span>Taker Ratio: <strong className="text-slate-100">{signal.whale_flow.taker_ratio}x</strong></span>
+              <span>Top Traders: <strong className="text-emerald-300">{(signal.whale_flow.top_trader_ratio * 100).toFixed(0)}% Long</strong></span>
+            </div>
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed font-medium">
+            {signal.whale_flow.narrative}
+          </p>
+        </section>
+      )}
 
       {/* ── DECISION GUIDE ── */}
       <section className="card p-5 space-y-4">
@@ -442,6 +609,12 @@ export default function SignalDetailPage() {
         signal={signal}
         isOpen={showCalculator}
         onClose={() => setShowCalculator(false)}
+      />
+
+      <PaperTradingModal
+        signal={signal}
+        isOpen={showPaperModal}
+        onClose={() => setShowPaperModal(false)}
       />
     </div>
   );
