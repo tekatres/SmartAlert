@@ -43,7 +43,7 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
   );
   const hasAntiFomo = Boolean(signal.anti_fomo_warning);
   const krakenSymbol = (signal as any).kraken_symbol || `PF_${signal.symbol === 'BTC' ? 'XBT' : signal.symbol}USD`;
-  const krakenUrl = `https://futures.kraken.com/trade/${krakenSymbol}`;
+  const krakenUrl = `https://pro.kraken.com/app/trade/futures-${signal.symbol.toLowerCase()}-usd-perp`;
 
   return (
     <div className="rounded-2xl border-2 border-emerald-500/40 bg-slate-900/90 p-4 sm:p-5 space-y-3 sm:space-y-4 shadow-2xl">

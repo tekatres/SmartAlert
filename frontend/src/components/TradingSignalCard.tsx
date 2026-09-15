@@ -86,7 +86,7 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
   }
 
   const krakenSymbol = (signal as any).kraken_symbol || `PF_${signal.symbol === 'BTC' ? 'XBT' : signal.symbol}USD`;
-  const krakenUrl = `https://futures.kraken.com/trade/${krakenSymbol}`;
+  const krakenUrl = `https://pro.kraken.com/app/trade/futures-${signal.symbol.toLowerCase()}-usd-perp`;
 
   // Dynamic metrics & fallbacks for immediate visibility across existing and new signals
   const atr = signal.atr || (signal.entry_price * (signal.sl_pct / 100) / 1.5);

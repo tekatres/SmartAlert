@@ -116,14 +116,14 @@ export function DailyOpportunityBanner({
 
   const isLong = topSignal.direction === "LONG";
   const krakenSymbol = (topSignal as any).kraken_symbol || `PF_${topSignal.symbol === 'BTC' ? 'XBT' : topSignal.symbol}USD`;
-  const krakenUrl = `https://futures.kraken.com/trade/${krakenSymbol}`;
+  const krakenUrl = `https://pro.kraken.com/app/trade/futures-${topSignal.symbol.toLowerCase()}-usd-perp`;
   const cappedLeverage = Math.min(10, topSignal.leverage);
 
   const copyActionPlan = () => {
     const text = `
 🎯 [SmartAlert Action Plan - ${topSignal.symbol} ${topSignal.direction}]
-1. Acción: Abrir posición ${topSignal.direction} en ${topSignal.symbol}USDT Futures a $${topSignal.entry_price}
-2. Apalancamiento: ${cappedLeverage}x (Modo Aislado - Máximo 10x)
+1. Contrato Kraken Pro: ${krakenSymbol} (${topSignal.symbol}/USD) a $${topSignal.entry_price}
+2. Apalancamiento: ${cappedLeverage}x (Margen Aislado / Isolate position)
 3. Stop Loss: $${topSignal.stop_loss} (-${topSignal.sl_pct.toFixed(2)}%)
 4. Take Profit 1 (50%): $${topSignal.take_profit_1} (+${topSignal.tp1_pct.toFixed(2)}%)
 5. Take Profit 2 (100%): $${topSignal.take_profit_2} (+${topSignal.tp2_pct.toFixed(2)}%)

@@ -32,7 +32,7 @@ export function KrakenExecutionModal({ signal, isOpen, onClose }: Props) {
   const isLong = signal.direction === "LONG";
   const krakenSymbol = KRAKEN_FUTURES_MAP[signal.symbol.toUpperCase()] || `PF_${signal.symbol.toUpperCase()}USD`;
   const spotPair = `${signal.symbol.toUpperCase()}/USD`;
-  const krakenFuturesUrl = `https://futures.kraken.com/trade/${krakenSymbol}`;
+  const krakenFuturesUrl = `https://pro.kraken.com/app/trade/futures-${signal.symbol.toLowerCase()}-usd-perp`;
   const krakenSpotUrl = `https://pro.kraken.com/app/trade/${signal.symbol.toLowerCase()}-usd`;
 
   const entryMin = signal.entry_zone_min || (isLong ? signal.entry_price * 0.993 : signal.entry_price);
@@ -53,11 +53,15 @@ export function KrakenExecutionModal({ signal, isOpen, onClose }: Props) {
     setTimeout(() => setCopiedField(null), 2500);
   };
 
-  const fullKrakenPayload = `🐙 GUÍA DE ORDEN KRAKEN PRO
+  const fullKrakenPayload = `🐙 GUÍA DE ORDEN KRAKEN PRO (pro.kraken.com)
 ==============================
-Contrato Kraken Futures: ${krakenSymbol}
+Terminal: ${krakenFuturesUrl}
+Contrato Perpetuo: ${krakenSymbol} (o "${signal.symbol} Perp" en Kraken Pro)
 Par Spot Margin: ${spotPair}
-Dirección: ${signal.direction} (${signal.leverage}x Aislado)
+Dirección: ${signal.direction} (${signal.leverage}x Aislado / Isolated)
+
+⚠️ MARGEN OBLIGATORIO:
+Activar "Isolate position" en Kraken Pro ANTES de abrir la orden.
 
 1. TIPO DE ENTRADA: Limit (Post-Only)
    Rango Pullback Óptimo: ${formatPrice(entryMin)} - ${formatPrice(entryMax)}
@@ -88,14 +92,14 @@ Dirección: ${signal.direction} (${signal.leverage}x Aislado)
         </button>
 
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-slate-800 pb-4 mb-5">
+        <div className="flex items-center gap-3 border-b border-slate-800 pb-4 mb-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-2xl">
             🐙
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="badge bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 text-xs font-bold">
-                KRAKEN PRO COMPATIBLE
+                KRAKEN PRO · MULTI-COLLATERAL
               </span>
               <span className={clsx(
                 "badge text-xs font-bold",
@@ -110,8 +114,17 @@ Dirección: ${signal.direction} (${signal.leverage}x Aislado)
               Cómo Ejecutar esta Señal en Kraken Pro
             </h2>
             <p className="text-xs text-slate-400">
-              Parámetros validados para comisiones mínimas (Maker 0.02%) y máxima protección de capital.
+              Compatible con la plataforma unificada <strong>pro.kraken.com</strong> (Maker 0.02% y Margen Aislado).
             </p>
+          </div>
+        </div>
+
+        {/* Migration & Unified Pro Notice */}
+        <div className="rounded-xl bg-indigo-950/30 border border-indigo-500/30 p-3 mb-4 text-[11px] text-indigo-200 flex items-start gap-2.5">
+          <span className="text-sm shrink-0">ℹ️</span>
+          <div>
+            <strong className="text-indigo-300">Terminal Unificada Kraken Pro:</strong> Todo el trading de futuros perpetuos se opera ahora de forma centralizada en <code className="text-white font-mono bg-indigo-900/50 px-1 py-0.5 rounded">pro.kraken.com</code>.
+            Puedes acceder con los botones directos de abajo o buscar el par en el selector de mercados bajo la pestaña <strong>Futures</strong> (ej. <em>"{signal.symbol} Perp"</em>).
           </div>
         </div>
 
@@ -121,9 +134,9 @@ Dirección: ${signal.direction} (${signal.leverage}x Aislado)
             href={krakenFuturesUrl}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600/90 hover:bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-lg shadow-indigo-600/20"
+            className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 text-xs font-bold text-white transition-all shadow-lg shadow-indigo-600/20"
           >
-            <span>🐙 Abrir en Kraken Futures ({krakenSymbol})</span>
+            <span>🐙 Abrir en Kraken Pro Futures</span>
             <span>↗</span>
           </a>
           <a
@@ -175,18 +188,36 @@ Dirección: ${signal.direction} (${signal.leverage}x Aislado)
             </div>
           </div>
 
-          {/* Step 2: Orden Limit en Pullback */}
+          {/* Step 2: Margen Aislado (Isolate Position) */}
+          <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/20 p-3.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-indigo-300 flex items-center gap-1.5">
+                <span>2️⃣</span> Activar "Isolate position" (Margen Aislado)
+              </span>
+              <span className="badge bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold">
+                {signal.leverage}x Aislado
+              </span>
+            </div>
+            <p className="text-slate-300 leading-relaxed">
+              En Kraken Pro, el formulario de orden viene en <strong className="text-rose-300">Cross Margin</strong> por defecto (arriesga todo tu wallet). En la esquina superior derecha del formulario de orden, activa el interruptor <strong className="text-emerald-400">Isolate position</strong> y fija el apalancamiento en <strong className="text-white font-mono">{signal.leverage}x</strong>.
+            </p>
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 text-[10px] text-amber-200">
+              ⚠️ <strong>Regla Kraken:</strong> El modo de margen solo se puede elegir <em>antes</em> de abrir la posición. Una vez abierta no permite cambiar entre Cross e Isolated.
+            </div>
+          </div>
+
+          {/* Step 3: Orden Limit en Pullback */}
           <div className="rounded-xl border border-amber-500/20 bg-amber-950/10 p-3.5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-bold text-amber-300 flex items-center gap-1.5">
-                <span>2️⃣</span> Entrada: Orden LIMIT (Anti-FOMO)
+                <span>3️⃣</span> Entrada: Orden LIMIT (Anti-FOMO)
               </span>
               <span className="badge bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[10px]">
                 Maker Fee: 0.02%
               </span>
             </div>
             <p className="text-slate-300">
-              No uses orden Market. Coloca una orden <strong>Limit</strong> dentro del rango de pullback (o activa <em>Post-Only</em>) para pagar la tarifa reducida de Kraken.
+              No uses orden Market. Coloca una orden <strong>Limit</strong> dentro del rango de pullback (o activa <em>Post-Only</em>) para pagar la tarifa reducida Maker de Kraken (0.02%).
             </p>
             <div className="flex items-center justify-between rounded-lg bg-slate-950 p-2.5 border border-slate-800 font-mono">
               <div>
@@ -202,11 +233,11 @@ Dirección: ${signal.direction} (${signal.leverage}x Aislado)
             </div>
           </div>
 
-          {/* Step 3: Stop Loss con Reduce Only */}
+          {/* Step 4: Stop Loss con Reduce Only */}
           <div className="rounded-xl border border-rose-500/20 bg-rose-950/10 p-3.5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-bold text-rose-300 flex items-center gap-1.5">
-                <span>3️⃣</span> Stop Loss: Tipo STOP MARKET con Trigger Index
+                <span>4️⃣</span> Stop Loss: Tipo STOP MARKET con Trigger Index
               </span>
               <span className="text-rose-400 font-mono font-bold">-{signal.sl_pct.toFixed(2)}%</span>
             </div>
@@ -228,11 +259,11 @@ Dirección: ${signal.direction} (${signal.leverage}x Aislado)
             </div>
           </div>
 
-          {/* Step 4: Take Profit Escalonado y Regla Break-Even */}
+          {/* Step 5: Take Profit Escalonado y Regla Break-Even */}
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/10 p-3.5 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="font-bold text-emerald-300 flex items-center gap-1.5">
-                <span>4️⃣</span> Take Profit 50/50 + Regla Break-Even
+                <span>5️⃣</span> Take Profit 50/50 + Regla Break-Even
               </span>
               <span className="badge bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px]">
                 R:R {signal.risk_reward.toFixed(2)}
