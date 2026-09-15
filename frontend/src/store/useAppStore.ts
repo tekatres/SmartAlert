@@ -1,5 +1,18 @@
 import { create } from "zustand";
-import { AlertDoc, UserPreferences } from "@/types";
+import { AlertDoc, UserPreferences, TradingSignalDoc } from "@/types";
+import { User } from "firebase/auth";
+
+const STORAGE_SIGNALS_KEY = "smartalert_live_signals";
+
+const loadCachedSignals = (): TradingSignalDoc[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_SIGNALS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
 
 interface AppState {
   // auth
@@ -13,6 +26,9 @@ interface AppState {
   searchQuery: string;
   mutedCoinInput: string;
 
+  // signals
+  liveSignals: TradingSignalDoc[];
+
   // ui
   toasts: Toast[];
   theme: "dark" | "light";
@@ -25,6 +41,7 @@ interface AppState {
   setFilterType: (t: AlertDoc["type"] | "all") => void;
   setSearchQuery: (q: string) => void;
   setMutedCoinInput: (q: string) => void;
+  setLiveSignals: (signals: TradingSignalDoc[]) => void;
   setTheme: (t: "dark" | "light") => void;
   pushToast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: string) => void;
@@ -38,8 +55,6 @@ interface Toast {
   duration?: number;
 }
 
-import { User } from "firebase/auth";
-
 export const useAppStore = create<AppState>((set) => ({
   user: null,
   authReady: false,
@@ -48,6 +63,7 @@ export const useAppStore = create<AppState>((set) => ({
   filterType: "all",
   searchQuery: "",
   mutedCoinInput: "",
+  liveSignals: loadCachedSignals(),
   toasts: [],
   theme: "dark",
 
@@ -58,6 +74,12 @@ export const useAppStore = create<AppState>((set) => ({
   setFilterType: (filterType) => set({ filterType }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setMutedCoinInput: (mutedCoinInput) => set({ mutedCoinInput }),
+  setLiveSignals: (liveSignals) => {
+    try {
+      localStorage.setItem(STORAGE_SIGNALS_KEY, JSON.stringify(liveSignals));
+    } catch {}
+    set({ liveSignals });
+  },
   setTheme: (theme) => set({ theme }),
   pushToast: (t) => {
     const id =

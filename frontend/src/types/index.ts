@@ -137,6 +137,7 @@ export interface TradingSignalDoc {
   bias_4h: string;
   funding_rate: number;
   open_interest: number;
+  kraken_symbol?: string;
   whale_flow?: {
     taker_ratio: number;
     top_trader_ratio: number;
@@ -168,6 +169,9 @@ export interface TradingSignalDoc {
   signal_type: string;
   candle_pattern?: string;
   rsi_divergence?: string;
+  adx?: number;
+  bb_squeeze?: boolean;
+  timeframe_conflict?: boolean;
   entry_zone_min?: number;
   entry_zone_max?: number;
   liquidation_price_est?: number;

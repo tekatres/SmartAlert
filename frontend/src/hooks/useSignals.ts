@@ -1,4 +1,4 @@
-// Hook: real-time subscription to trading_signals collection
+// Hook: real-time subscription to trading_signals with in-memory reactive fallback
 import { useEffect, useState } from "react";
 import {
   collection,
@@ -9,9 +9,11 @@ import {
 } from "firebase/firestore";
 import { db } from "@/services/firebase";
 import { TradingSignalDoc } from "@/types";
+import { useAppStore } from "@/store/useAppStore";
 
 export function useSignals(pageSize: number = 20) {
-  const [signals, setSignals] = useState<TradingSignalDoc[]>([]);
+  const liveSignals = useAppStore((s) => s.liveSignals);
+  const [firestoreSignals, setFirestoreSignals] = useState<TradingSignalDoc[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -27,7 +29,7 @@ export function useSignals(pageSize: number = 20) {
           id: d.id,
           ...(d.data() as Omit<TradingSignalDoc, "id">),
         }));
-        setSignals(docs);
+        setFirestoreSignals(docs);
         setLoading(false);
       },
       () => setLoading(false)
@@ -35,5 +37,27 @@ export function useSignals(pageSize: number = 20) {
     return () => unsub();
   }, [pageSize]);
 
-  return { signals, loading };
+  // Determine active signals:
+  // If liveSignals is present and has items, compare timestamps with firestoreSignals.
+  // Prioritize whichever is newer so local live scans update the UI immediately
+  // even if Firestore write quotas are exhausted or slow.
+  const signals = (() => {
+    if (!liveSignals || liveSignals.length === 0) return firestoreSignals;
+    if (!firestoreSignals || firestoreSignals.length === 0) return liveSignals;
+
+    const getMs = (ts: any) => {
+      if (!ts) return 0;
+      if (typeof ts === "number") return ts;
+      if (typeof ts === "string") return new Date(ts).getTime();
+      if (ts.seconds) return ts.seconds * 1000;
+      return 0;
+    };
+
+    const latestLiveMs = Math.max(...liveSignals.map((s) => getMs(s.created_at)));
+    const latestFsMs = Math.max(...firestoreSignals.map((s) => getMs(s.created_at)));
+
+    return latestLiveMs >= latestFsMs ? liveSignals : firestoreSignals;
+  })();
+
+  return { signals, loading: loading && signals.length === 0 };
 }

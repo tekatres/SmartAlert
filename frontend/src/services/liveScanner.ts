@@ -1,6 +1,8 @@
-import { collection, doc, setDoc, deleteDoc, getDocs, Timestamp } from "firebase/firestore";
+import { doc, setDoc, Timestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { fetchWhaleFlow } from "./whaleTracker";
+import { TradingSignalDoc } from "@/types";
+import { useAppStore } from "@/store/useAppStore";
 import {
   computeRegimeGuard,
   detectLiquiditySweep,
@@ -313,9 +315,9 @@ async function fetchFundingRate(symbol: string): Promise<number> {
 // MAIN SCANNER
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scannedCount: number; signalsFound: number }> {
+export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scannedCount: number; signalsFound: number; signals: TradingSignalDoc[] }> {
   let generatedCount = 0;
-  const newSignals: { id: string; data: any }[] = [];
+  const newSignals: TradingSignalDoc[] = [];
   const newAlerts: { id: string; data: any }[] = [];
 
   // ── PRE-FLIGHT: BTC BETA GUARD (EVALUATE BITCOIN MASTER HEALTH FIRST) ──
@@ -355,7 +357,7 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
   // NO signals/alerts: institutional algos drain the books and wick both ways.
   if (macroBlackout.blocked) {
     console.warn(`[liveScanner] ${macroBlackout.explanation}`);
-    return { scannedCount: 0, signalsFound: 0 };
+    return { scannedCount: 0, signalsFound: 0, signals: [] };
   }
 
   for (const item of SYMBOLS) {
@@ -667,8 +669,8 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       }
 
       const nowTs = Date.now();
-      const signalId = `live_${item.symbol.toLowerCase()}_${nowTs}`;
-      const alertId = `alert_live_${item.symbol.toLowerCase()}_${nowTs}`;
+      const signalId = `live_${item.symbol.toLowerCase()}`;
+      const alertId = `alert_live_${item.symbol.toLowerCase()}`;
 
       // FIX #5: Only generate an alert if confluence is meaningful (>= 7) AND the market is moving
       // Prevents 13 identical low-quality alerts on every scan
@@ -802,78 +804,78 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
         signalTypeLabel = `${direction} Descartar (<5/12 — Sin Confluencia)`;
       }
 
-      // Create trading signal document if confluence >= regime-adjusted threshold
-      if (effectiveConfluence >= regimeGuard.requiredConfluence) {
-        const signalDoc = {
-          coin_id: item.coin_id,
-          symbol: item.symbol,
-          name: item.name,
-          direction,
-          confluence_score: effectiveConfluence,
-          confluence_total: 12,
-          confidence: parseFloat((effectiveConfluence / 12).toFixed(2)),
-          entry_price: parseFloat(entry.toFixed(4)),
-          leverage,
-          stop_loss: parseFloat(sl.toFixed(4)),
-          take_profit_1: parseFloat(tp1.toFixed(4)),
-          take_profit_2: parseFloat(tp2.toFixed(4)),
-          risk_reward: rr,
-          atr: parseFloat(atr1h.toFixed(4)),
-          sl_pct: slPct,
-          tp1_pct: tp1Pct,
-          tp2_pct: tp2Pct,
-          votes,
-          adx: adx.adx,
-          rsi_divergence: rsiDiv,
-          candle_pattern: candlePat,
-          bb_squeeze: bb.isSqueeze,
-          timeframe_conflict: opposes15mAnd4h,
-          bias_15m,
-          bias_1h,
-          bias_4h,
-          funding_rate: fundingRate,
-          kraken_symbol: item.kraken,
-          signal_type: signalTypeLabel,
-          whale_flow: {
-            taker_ratio: whaleFlow.takerBuySellRatio,
-            top_trader_ratio: whaleFlow.topTraderLongRatio,
-            bias: whaleFlow.whaleBias,
-            badge_text: whaleFlow.badgeText,
-            narrative: whaleFlow.narrative,
-          },
-          btc_guard: {
-            status: btcGuardStatus,
-            btc_direction: btcDirection,
-            btc_strength: btcStrength,
-            explanation: btcGuardExplanation,
-          },
-          liquidity_sweep: sweepTrap
-            ? {
-                trap: sweepTrap,
-                level: liquiditySweep.level,
-                wick_pct: parseFloat(liquiditySweep.wickPct.toFixed(2)),
-                absorption: liquiditySweep.absorption,
-                narrative: liquiditySweep.narrative,
-              }
-            : null,
-          regime_guard: {
-            choppy: regimeGuard.choppy,
-            ci: regimeGuard.ci,
-            is_weekend: regimeGuard.isWeekend,
-            volume_ratio: regimeGuard.volumeRatio,
-            required_confluence: regimeGuard.requiredConfluence,
-            explanation: regimeGuard.explanation,
-          },
-          entry_zone_min: entryZoneMin,
-          entry_zone_max: entryZoneMax,
-          liquidation_price_est: liquidationPriceEst,
-          market_phase: marketPhase,
-          anti_fomo_warning: antiFomoWarning,
-          min_tier: "free",
-          created_at: Timestamp.now(),
-        };
-        newSignals.push({ id: signalId, data: signalDoc });
-      }
+      // Generate trading signal document for this asset
+      const signalDoc: TradingSignalDoc = {
+        id: signalId,
+        coin_id: item.coin_id,
+        symbol: item.symbol,
+        name: item.name,
+        direction,
+        confluence_score: effectiveConfluence,
+        confluence_total: 12,
+        confidence: parseFloat((effectiveConfluence / 12).toFixed(2)),
+        entry_price: parseFloat(entry.toFixed(4)),
+        leverage,
+        stop_loss: parseFloat(sl.toFixed(4)),
+        take_profit_1: parseFloat(tp1.toFixed(4)),
+        take_profit_2: parseFloat(tp2.toFixed(4)),
+        risk_reward: rr,
+        atr: parseFloat(atr1h.toFixed(4)),
+        sl_pct: slPct,
+        tp1_pct: tp1Pct,
+        tp2_pct: tp2Pct,
+        votes,
+        bias_15m,
+        bias_1h,
+        bias_4h,
+        funding_rate: fundingRate,
+        open_interest: 0,
+        kraken_symbol: item.kraken,
+        signal_type: signalTypeLabel,
+        whale_flow: {
+          taker_ratio: whaleFlow.takerBuySellRatio,
+          top_trader_ratio: whaleFlow.topTraderLongRatio,
+          bias: whaleFlow.whaleBias,
+          badge_text: whaleFlow.badgeText,
+          narrative: whaleFlow.narrative,
+        },
+        btc_guard: {
+          status: btcGuardStatus,
+          btc_direction: btcDirection,
+          btc_strength: btcStrength,
+          explanation: btcGuardExplanation,
+        },
+        liquidity_sweep: sweepTrap
+          ? {
+              trap: sweepTrap,
+              level: liquiditySweep.level,
+              wick_pct: parseFloat(liquiditySweep.wickPct.toFixed(2)),
+              absorption: liquiditySweep.absorption,
+              narrative: liquiditySweep.narrative,
+            }
+          : null,
+        regime_guard: {
+          choppy: regimeGuard.choppy,
+          ci: regimeGuard.ci,
+          is_weekend: regimeGuard.isWeekend,
+          volume_ratio: regimeGuard.volumeRatio,
+          required_confluence: regimeGuard.requiredConfluence,
+          explanation: regimeGuard.explanation,
+        },
+        entry_zone_min: entryZoneMin,
+        entry_zone_max: entryZoneMax,
+        liquidation_price_est: liquidationPriceEst,
+        market_phase: marketPhase,
+        anti_fomo_warning: antiFomoWarning,
+        adx: adx.adx,
+        rsi_divergence: rsiDiv,
+        candle_pattern: candlePat,
+        bb_squeeze: bb.isSqueeze,
+        timeframe_conflict: opposes15mAnd4h,
+        min_tier: "free",
+        created_at: { seconds: Math.floor(nowTs / 1000), nanoseconds: 0 },
+      };
+      newSignals.push(signalDoc);
 
       generatedCount++;
     } catch (err) {
@@ -881,25 +883,28 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
     }
   }
 
-  // ONLY clear old documents if we have successfully built new ones!
-  if (newAlerts.length > 0 || newSignals.length > 0) {
-    try {
-      const signalsSnap = await getDocs(collection(db, "trading_signals"));
-      for (const d of signalsSnap.docs) await deleteDoc(doc(db, "trading_signals", d.id));
-      const alertsSnap = await getDocs(collection(db, "alerts"));
-      for (const d of alertsSnap.docs) await deleteDoc(doc(db, "alerts", d.id));
-    } catch (err) {
-      console.warn("Could not clear previous docs:", err);
-    }
-
-    // Write new signals and alerts
-    for (const item of newSignals) {
-      await setDoc(doc(db, "trading_signals", item.id), item.data);
-    }
-    for (const item of newAlerts) {
-      await setDoc(doc(db, "alerts", item.id), item.data);
-    }
+  // 1. Immediately push new signals to local reactive Zustand store & localStorage
+  // This provides an INSTANT (0ms) UI refresh with fresh timestamps across all cards,
+  // immune to Firestore quota limits or latency.
+  if (newSignals.length > 0) {
+    useAppStore.getState().setLiveSignals(newSignals);
   }
 
-  return { scannedCount: SYMBOLS.length, signalsFound: newSignals.length };
+  // 2. Background sync to Firestore without blocking the UI and gracefully catching quota limits
+  if (newAlerts.length > 0 || newSignals.length > 0) {
+    (async () => {
+      try {
+        for (const item of newSignals) {
+          await setDoc(doc(db, "trading_signals", item.id), item, { merge: true });
+        }
+        for (const item of newAlerts) {
+          await setDoc(doc(db, "alerts", item.id), item.data, { merge: true });
+        }
+      } catch (err) {
+        console.warn("[liveScanner] Firestore quota or network limit during sync (client updated reactively):", err);
+      }
+    })();
+  }
+
+  return { scannedCount: SYMBOLS.length, signalsFound: newSignals.length, signals: newSignals };
 }
