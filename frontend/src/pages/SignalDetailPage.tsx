@@ -16,6 +16,7 @@ import { PaperTradingModal } from "@/components/PaperTradingModal";
 import { fetchMarketSentiment } from "@/services/marketSentiment";
 import { useSignalSetupStats } from "@/hooks/useSignalStats";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
+import { useAppStore } from "@/store/useAppStore";
 
 export default function SignalDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,6 +29,7 @@ export default function SignalDetailPage() {
 
   const { stats: setupStats, winrate } = useSignalSetupStats(signal?.signal_type || "");
   const { trades } = usePaperTrading();
+  const liveSignals = useAppStore((s) => s.liveSignals);
 
   useEffect(() => {
     fetchMarketSentiment().then((s) => setSentimentValue(s.fearAndGreedValue));
@@ -36,6 +38,16 @@ export default function SignalDetailPage() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
+
+    // 1. Check local liveSignals store first (instant, immune to Firestore quota)
+    const localSignal = liveSignals.find((s) => s.id === id);
+    if (localSignal) {
+      setSignal(localSignal);
+      setNotFound(false);
+      setLoading(false);
+    }
+
+    // 2. Also subscribe to Firestore for cloud-synced data (will update if available)
     const ref = doc(db, "trading_signals", id);
     const unsub = onSnapshot(
       ref,
@@ -43,15 +55,20 @@ export default function SignalDetailPage() {
         if (snap.exists()) {
           setSignal({ id: snap.id, ...(snap.data() as any) });
           setNotFound(false);
-        } else {
+        } else if (!localSignal) {
+          // Only show not-found if we also don't have it locally
           setNotFound(true);
         }
         setLoading(false);
       },
-      () => setLoading(false)
+      () => {
+        // Firestore error (quota, network) — use local if available
+        if (!localSignal) setNotFound(true);
+        setLoading(false);
+      }
     );
     return () => unsub();
-  }, [id]);
+  }, [id, liveSignals]);
 
   if (loading) {
     return (
