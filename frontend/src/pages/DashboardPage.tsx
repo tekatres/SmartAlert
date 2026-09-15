@@ -50,6 +50,7 @@ export default function DashboardPage() {
   });
   const [showPaperModal, setShowPaperModal] = useState(false);
   const [sentiment, setSentiment] = useState<MarketSentimentData | null>(null);
+  const [signalFilter, setSignalFilter] = useState<"ALL" | "PULLBACK" | "LONG" | "SHORT">("ALL");
   const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { trades } = usePaperTrading();
   const openTrades = trades.filter((t) => t.status === "OPEN");
@@ -356,23 +357,83 @@ export default function DashboardPage() {
             <ConversionWidget />
           </div>
 
-          {signals.length > 0 && (
-            <div>
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-300">
-                  <span>🎯</span> Señales Activas de Futuros
-                  <span className="rounded bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-xs font-bold text-emerald-300">
-                    {signals.length} activa{signals.length > 1 ? "s" : ""}
-                  </span>
-                </h2>
+          {signals.length > 0 && (() => {
+            const pullbackSignals = signals.filter(s => (s.market_phase || (s.confluence_score >= 8 ? "PULLBACK" : "")) === "PULLBACK");
+            const longSignals = signals.filter(s => s.direction === "LONG");
+            const shortSignals = signals.filter(s => s.direction === "SHORT");
+            const displayedSignals = signalFilter === "PULLBACK"
+              ? pullbackSignals
+              : signalFilter === "LONG"
+              ? longSignals
+              : signalFilter === "SHORT"
+              ? shortSignals
+              : signals;
+
+            return (
+              <div>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-300">
+                    <span>🎯</span> Señales Activas de Futuros
+                    <span className="rounded bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-xs font-bold text-emerald-300">
+                      {displayedSignals.length} de {signals.length}
+                    </span>
+                  </h2>
+
+                  {/* Quick Filters */}
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-slate-900/90 p-1 border border-slate-800 text-xs">
+                    <button
+                      onClick={() => setSignalFilter("ALL")}
+                      className={clsx(
+                        "px-2.5 py-1 rounded-md font-bold transition-all",
+                        signalFilter === "ALL" ? "bg-white/15 text-slate-100 shadow" : "text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      Todas ({signals.length})
+                    </button>
+                    <button
+                      onClick={() => setSignalFilter("PULLBACK")}
+                      className={clsx(
+                        "flex items-center gap-1 px-2.5 py-1 rounded-md font-bold transition-all",
+                        signalFilter === "PULLBACK" ? "bg-indigo-500/25 border border-indigo-500/40 text-indigo-300 shadow" : "text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      <span>🔄</span> En Pullback ({pullbackSignals.length})
+                    </button>
+                    <button
+                      onClick={() => setSignalFilter("LONG")}
+                      className={clsx(
+                        "flex items-center gap-1 px-2.5 py-1 rounded-md font-bold transition-all",
+                        signalFilter === "LONG" ? "bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 shadow" : "text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      <span>🟢</span> LONG ({longSignals.length})
+                    </button>
+                    <button
+                      onClick={() => setSignalFilter("SHORT")}
+                      className={clsx(
+                        "flex items-center gap-1 px-2.5 py-1 rounded-md font-bold transition-all",
+                        signalFilter === "SHORT" ? "bg-rose-500/20 border border-rose-500/30 text-rose-300 shadow" : "text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      <span>🔴</span> SHORT ({shortSignals.length})
+                    </button>
+                  </div>
+                </div>
+
+                {displayedSignals.length === 0 ? (
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 text-center text-xs text-slate-400">
+                    No hay señales que coincidan con este filtro en este momento.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    {displayedSignals.map((s) => (
+                      <TradingSignalCard key={s.id} signal={s} />
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {signals.map((s) => (
-                  <TradingSignalCard key={s.id} signal={s} />
-                ))}
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           <Filters />
 

@@ -166,6 +166,8 @@ export interface TradingSignalDoc {
     explanation: string;
   };
   signal_type: string;
+  candle_pattern?: string;
+  rsi_divergence?: string;
   entry_zone_min?: number;
   entry_zone_max?: number;
   liquidation_price_est?: number;

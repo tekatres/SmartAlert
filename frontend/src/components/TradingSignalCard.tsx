@@ -98,6 +98,52 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
     ).toFixed(4)
   );
 
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  const handleCopyBinanceOrder = () => {
+    const text = `
+🎯 ORDEN BINANCE FUTURES - ${signal.symbol}
+• Par: ${signal.symbol}USDT (Perpetuo USD-M)
+• Dirección: ${signal.direction}
+• Apalancamiento: ${signal.leverage}x (Margen AISLADO)
+• Tipo de Orden: LIMIT en ${formatPrice(entryMin)} - ${formatPrice(entryMax)}
+• Entrada Sugerida: ${formatPrice(signal.entry_price)}
+• Stop Loss: ${formatPrice(signal.stop_loss)} (-${signal.sl_pct.toFixed(2)}%)
+• Take Profit 1 (Cerrar 50%): ${formatPrice(signal.take_profit_1)} (+${signal.tp1_pct.toFixed(2)}%)
+• Take Profit 2 (Cerrar 50% restante): ${formatPrice(signal.take_profit_2)} (+${signal.tp2_pct.toFixed(2)}%)
+• 🛡️ Regla Break-Even: Al tocar TP1, mover Stop Loss al precio de entrada (${formatPrice(signal.entry_price)}) para eliminar todo el riesgo.
+    `.trim();
+
+    navigator.clipboard.writeText(text);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2500);
+  };
+
+  // Semáforo de Entrada / Trigger
+  const hasCandleTrigger = signal.candle_pattern === "HAMMER" || signal.candle_pattern === "BULL_ENGULFING" || signal.candle_pattern === "SHOOTING_STAR" || signal.candle_pattern === "BEAR_ENGULFING";
+  const hasDivergence = signal.rsi_divergence === "BULLISH" || signal.rsi_divergence === "BEARISH";
+  const hasSweep = Boolean(signal.liquidity_sweep);
+
+  let entryStatus = {
+    badge: "🎯 EN ZONA DE PULLBACK",
+    color: "bg-indigo-500/20 text-indigo-300 border-indigo-500/40",
+    hint: "Coloca orden limitada en el rango para asegurar un buen R:R.",
+  };
+
+  if (hasCandleTrigger || hasDivergence || hasSweep) {
+    entryStatus = {
+      badge: "🚀 GATILLO CONFIRMADO — ¡ENTRAR!",
+      color: "bg-emerald-500/25 text-emerald-300 border-emerald-500/50 animate-pulse font-black",
+      hint: `Confirmación de rebote detectada (${hasDivergence ? "Divergencia RSI" : hasCandleTrigger ? signal.candle_pattern : "Barrida de Liquidez"}).`,
+    };
+  } else if (marketPhase === "OVEREXTENDED") {
+    entryStatus = {
+      badge: "⏳ ESPERANDO RETROCESO",
+      color: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+      hint: "Precio sobreextendido. No compres a mercado, espera retroceso a soporte.",
+    };
+  }
+
   return (
     <>
       <div
@@ -233,6 +279,23 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
             </div>
           )}
 
+          {/* Semáforo de Entrada / Trigger Status & Quick Copy */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 rounded-lg bg-slate-950/70 border border-slate-800 p-2 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className={clsx("rounded px-2 py-0.5 text-[10px] font-bold border shrink-0", entryStatus.color)}>
+                {entryStatus.badge}
+              </span>
+              <span className="text-[11px] text-slate-400 truncate">{entryStatus.hint}</span>
+            </div>
+            <button
+              onClick={handleCopyBinanceOrder}
+              className="flex items-center gap-1 shrink-0 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 px-2.5 py-1 text-[11px] font-bold text-sky-300 transition-all self-end sm:self-auto shadow-sm"
+              title="Copiar parámetros exactos para la app de Binance"
+            >
+              <span>{copySuccess ? "✓ ¡Orden Copiada!" : "📋 Copiar Orden Binance"}</span>
+            </button>
+          </div>
+
           {/* Optimal Entry Pullback Zone */}
           <div className="flex items-center justify-between rounded-lg bg-indigo-950/40 border border-indigo-500/30 px-3 py-1.5 text-xs">
             <div className="flex items-center gap-1.5 text-indigo-300 font-semibold">
@@ -267,6 +330,15 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
               value={`+${signal.tp2_pct.toFixed(2)}%`}
               tone="text-emerald-300"
             />
+          </div>
+
+          {/* Regla de Oro: Break-Even / Riesgo Cero */}
+          <div className="flex items-start gap-2 rounded-lg bg-emerald-950/30 border border-emerald-500/20 px-2.5 py-1.5 text-[11px] text-emerald-300/90">
+            <span className="text-sm shrink-0">🛡️</span>
+            <div>
+              <span className="font-bold text-emerald-300">Regla Break-Even: </span>
+              <span>Al tocar TP1 ({formatPrice(signal.take_profit_1)}), mueve tu Stop Loss al precio de Entrada ({formatPrice(signal.entry_price)}). Tu riesgo pasará a ser de <strong>0€</strong> y el resto correrá gratis hacia TP2.</span>
+            </div>
           </div>
 
           {/* Collapsible Chart */}
