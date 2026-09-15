@@ -621,7 +621,7 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       const slPct    = parseFloat((Math.max(1.2, atrPct * 1.5)).toFixed(2));
       const tp1Pct   = parseFloat((slPct * 2.0).toFixed(2)); // Institutional standard: minimum 1:2.0 R:R on TP1
       const tp2Pct   = parseFloat((slPct * 3.2).toFixed(2)); // Extended target: 1:3.2 R:R on TP2
-      const rr       = parseFloat((tp1Pct / slPct).toFixed(2));
+      const rr       = parseFloat(((0.5 * tp1Pct + 0.5 * tp2Pct) / slPct).toFixed(2)); // Blended R:R (50% TP1 + 50% TP2)
 
       const isLong  = direction === "LONG";
       const entry   = currentPrice;
@@ -629,6 +629,42 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       const tp1     = isLong ? entry * (1 + tp1Pct / 100) : entry * (1 - tp1Pct / 100);
       const tp2     = isLong ? entry * (1 + tp2Pct / 100) : entry * (1 - tp2Pct / 100);
       const changePct = parseFloat((((currentPrice - k1h[0].open) / k1h[0].open) * 100).toFixed(2));
+
+      // ── Anti-FOMO & Price Extension Guard ──────────────────────────────────
+      const extEma21 = atr1h > 0 ? (currentPrice - ema21) / atr1h : 0;
+      const extVwap  = atr1h > 0 ? (currentPrice - vwap) / atr1h : 0;
+      const isOverextendedBullish = (extEma21 > 2.0 && extVwap > 1.5) || rsi1h > 72;
+      const isOverextendedBearish = (extEma21 < -2.0 && extVwap < -1.5) || rsi1h < 28;
+      const isPullbackZone = extEma21 >= -0.7 && extEma21 <= 1.0;
+
+      let marketPhase: "PULLBACK" | "OVEREXTENDED" | "TREND_IMPULSE" | "RANGING" = "RANGING";
+      if (isOverextendedBullish || isOverextendedBearish) {
+        marketPhase = "OVEREXTENDED";
+      } else if (isPullbackZone) {
+        marketPhase = "PULLBACK";
+      } else if (Math.abs(extEma21) > 1.0) {
+        marketPhase = "TREND_IMPULSE";
+      }
+
+      // Pullback optimal entry range
+      const entryZoneMin = parseFloat((Math.min(ema21, vwap) - 0.25 * atr1h).toFixed(4));
+      const entryZoneMax = parseFloat((Math.max(ema21, vwap) + 0.35 * atr1h).toFixed(4));
+
+      // Estimated liquidation price (Binance Futures maintenance margin 0.5%)
+      const mmRate = 0.005;
+      const liquidationPriceEst = parseFloat(
+        (isLong
+          ? entry * (1.0 - (1.0 / Math.max(1, leverage)) + mmRate)
+          : entry * (1.0 + (1.0 / Math.max(1, leverage)) - mmRate)
+        ).toFixed(4)
+      );
+
+      let antiFomoWarning: string | null = null;
+      if (isLong && isOverextendedBullish) {
+        antiFomoWarning = `Precio sobreextendido (+${extEma21.toFixed(1)} ATR sobre EMA21 / RSI ${rsi1h.toFixed(0)}). Riesgo alto de comprar en el techo. Esperar retroceso hacia zona $${entryZoneMin} - $${entryZoneMax}.`;
+      } else if (!isLong && isOverextendedBearish) {
+        antiFomoWarning = `Precio sobreextendido a la baja (${extEma21.toFixed(1)} ATR bajo EMA21 / RSI ${rsi1h.toFixed(0)}). Riesgo de vender en el suelo. Esperar rebote técnico.`;
+      }
 
       const nowTs = Date.now();
       const signalId = `live_${item.symbol.toLowerCase()}_${nowTs}`;
@@ -828,6 +864,11 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
             required_confluence: regimeGuard.requiredConfluence,
             explanation: regimeGuard.explanation,
           },
+          entry_zone_min: entryZoneMin,
+          entry_zone_max: entryZoneMax,
+          liquidation_price_est: liquidationPriceEst,
+          market_phase: marketPhase,
+          anti_fomo_warning: antiFomoWarning,
           min_tier: "free",
           created_at: Timestamp.now(),
         };

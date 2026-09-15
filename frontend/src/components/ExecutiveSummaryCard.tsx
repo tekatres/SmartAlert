@@ -31,7 +31,16 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
   }
 
   const confidencePct = Math.round((score / 12) * 100);
-  const phase = signal.market_phase || "TREND_IMPULSE";
+  const phase = signal.market_phase || (score >= 8 ? "PULLBACK" : "TREND_IMPULSE");
+  const atr = signal.atr || (entryPrice * (slPct / 100) / 1.5);
+  const entryMin = signal.entry_zone_min || parseFloat((isLong ? entryPrice - 0.35 * atr : entryPrice - 0.1 * atr).toFixed(4));
+  const entryMax = signal.entry_zone_max || parseFloat((isLong ? entryPrice + 0.1 * atr : entryPrice + 0.35 * atr).toFixed(4));
+  const liqEst = signal.liquidation_price_est || parseFloat(
+    (isLong
+      ? entryPrice * (1.0 - (1.0 / Math.max(1, signal.leverage || 5)) + 0.005)
+      : entryPrice * (1.0 + (1.0 / Math.max(1, signal.leverage || 5)) - 0.005)
+    ).toFixed(4)
+  );
   const hasAntiFomo = Boolean(signal.anti_fomo_warning);
 
   return (
@@ -88,7 +97,7 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
       {/* Main Verdict Box */}
       <div className={clsx("rounded-xl p-3.5 border text-xs leading-relaxed font-medium", actionBg)}>
         <p className="text-sm font-bold mb-1">
-          {isLong ? "🚀 Recomendación ALCISTA (LONG)" : "📉 Recomendación BAJISTA (SHORT)"}
+          {actionStatus === "ENTRAR AHORA" || actionStatus === "OPERAR AHORA" ? "✓ Acción Inmediata: Operación de Alta Convicción" : "⚠️ Criterio de Precaución:"}
         </p>
         <p>{summaryText}</p>
       </div>
@@ -135,33 +144,29 @@ export function ExecutiveSummaryCard({ signal }: { signal: TradingSignalDoc }) {
         </div>
       </div>
 
-      {/* INSTRUCCIÓN PASO A PASO DIRECTA Y PRECISA */}
-      <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 sm:p-4 space-y-2.5">
-        <h4 className="text-xs font-black uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
-          <span>⚡</span> Instrucciones Exactas para Enviar la Orden
-        </h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-300">
+      {/* 3-Step Action Plan */}
+      <div className="space-y-2 text-xs">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+          Plan de Ejecución Paso a Paso:
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
           <div className="rounded-lg bg-slate-950/70 p-2.5 border border-slate-800">
-            <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 1: Tipo & Entrada</span>
+            <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 1: Entrada y Margen</span>
             <p className="mt-0.5 font-medium">
               Abre posición <strong className={isLong ? "text-emerald-400 font-black" : "text-rose-400 font-black"}>{signal.direction}</strong> con margen <strong>Aislado (Isolated)</strong> a <strong className="font-mono text-slate-100">${entryPrice.toLocaleString("en-US", { maximumFractionDigits: 4 })}</strong> (Apalancamiento: <strong className="text-amber-300">{signal.leverage || 5}x</strong>).
             </p>
-            {signal.entry_zone_min && signal.entry_zone_max ? (
-              <p className="mt-1 text-[11px] text-sky-300/90 font-mono">
-                🎯 Zona Pullback: ${signal.entry_zone_min.toLocaleString("en-US", { maximumFractionDigits: 4 })} - ${signal.entry_zone_max.toLocaleString("en-US", { maximumFractionDigits: 4 })}
-              </p>
-            ) : null}
+            <p className="mt-1 text-[11px] text-sky-300/90 font-mono">
+              🎯 Zona Pullback: ${entryMin.toLocaleString("en-US", { maximumFractionDigits: 4 })} - ${entryMax.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+            </p>
           </div>
           <div className="rounded-lg bg-slate-950/70 p-2.5 border border-slate-800">
             <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 2: Protección Stop Loss & Liq</span>
             <p className="mt-0.5 font-medium">
               Pon orden SL en <strong className="font-mono text-rose-400 font-bold">${stopLoss.toLocaleString("en-US", { maximumFractionDigits: 4 })}</strong> (-{slPct.toFixed(2)}%). <span className="text-slate-400">Nunca muevas el SL en contra.</span>
             </p>
-            {signal.liquidation_price_est ? (
-              <p className="mt-1 text-[11px] text-slate-400 font-mono">
-                🛡️ Liq. estimada: <span className="text-amber-400">${signal.liquidation_price_est.toLocaleString("en-US", { maximumFractionDigits: 4 })}</span> (Protegido por SL)
-              </p>
-            ) : null}
+            <p className="mt-1 text-[11px] text-slate-400 font-mono">
+              🛡️ Liq. estimada: <span className="text-amber-400">${liqEst.toLocaleString("en-US", { maximumFractionDigits: 4 })}</span> (Protegido por SL)
+            </p>
           </div>
           <div className="rounded-lg bg-slate-950/70 p-2.5 border border-slate-800">
             <span className="text-[10px] uppercase font-bold text-slate-500 block">Paso 3: Salida Parcial TP1 (50%)</span>

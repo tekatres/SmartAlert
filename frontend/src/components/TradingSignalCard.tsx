@@ -86,6 +86,18 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
   const krakenSymbol = (signal as any).kraken_symbol || `PF_${signal.symbol === 'BTC' ? 'XBT' : signal.symbol}USD`;
   const krakenUrl = `https://futures.kraken.com/trade/${krakenSymbol}`;
 
+  // Dynamic metrics & fallbacks for immediate visibility across existing and new signals
+  const atr = signal.atr || (signal.entry_price * (signal.sl_pct / 100) / 1.5);
+  const entryMin = signal.entry_zone_min || parseFloat((isLong ? signal.entry_price - 0.35 * atr : signal.entry_price - 0.1 * atr).toFixed(4));
+  const entryMax = signal.entry_zone_max || parseFloat((isLong ? signal.entry_price + 0.1 * atr : signal.entry_price + 0.35 * atr).toFixed(4));
+  const marketPhase = signal.market_phase || (signal.confluence_score >= 8 ? "PULLBACK" : "TREND_IMPULSE");
+  const liqEst = signal.liquidation_price_est || parseFloat(
+    (isLong
+      ? signal.entry_price * (1.0 - (1.0 / Math.max(1, signal.leverage)) + 0.005)
+      : signal.entry_price * (1.0 + (1.0 / Math.max(1, signal.leverage)) - 0.005)
+    ).toFixed(4)
+  );
+
   return (
     <>
       <div
@@ -114,28 +126,26 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
                   <span className="rounded-md bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 text-xs font-bold text-amber-300 shrink-0">
                     {signal.leverage}x
                   </span>
-                  {signal.market_phase && (
-                    <span
-                      className={clsx(
-                        "rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-wider shrink-0",
-                        signal.market_phase === "PULLBACK"
-                          ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
-                          : signal.market_phase === "OVEREXTENDED"
-                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse font-black"
-                          : signal.market_phase === "TREND_IMPULSE"
-                          ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-                          : "bg-slate-800 text-slate-400 border-slate-700"
-                      )}
-                    >
-                      {signal.market_phase === "PULLBACK"
-                        ? "🔄 PULLBACK"
-                        : signal.market_phase === "OVEREXTENDED"
-                        ? "⚠️ SOBREEXTENDIDO"
-                        : signal.market_phase === "TREND_IMPULSE"
-                        ? "⚡ IMPULSO"
-                        : "↔️ RANGO"}
-                    </span>
-                  )}
+                  <span
+                    className={clsx(
+                      "rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-wider shrink-0",
+                      marketPhase === "PULLBACK"
+                        ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
+                        : marketPhase === "OVEREXTENDED"
+                        ? "bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse font-black"
+                        : marketPhase === "TREND_IMPULSE"
+                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                        : "bg-slate-800 text-slate-400 border-slate-700"
+                    )}
+                  >
+                    {marketPhase === "PULLBACK"
+                      ? "🔄 PULLBACK"
+                      : marketPhase === "OVEREXTENDED"
+                      ? "⚠️ SOBREEXTENDIDO"
+                      : marketPhase === "TREND_IMPULSE"
+                      ? "⚡ IMPULSO"
+                      : "↔️ RANGO"}
+                  </span>
                   <span className="w-full sm:w-auto">{confluenceBadge}</span>
                   {activeTrade && (
                     <span className="rounded-md bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-[10px] font-black text-emerald-300 flex items-center gap-1 animate-pulse">
@@ -224,29 +234,23 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
           )}
 
           {/* Optimal Entry Pullback Zone */}
-          {signal.entry_zone_min && signal.entry_zone_max && (
-            <div className="flex items-center justify-between rounded-lg bg-indigo-950/40 border border-indigo-500/30 px-3 py-1.5 text-xs">
-              <div className="flex items-center gap-1.5 text-indigo-300 font-semibold">
-                <span>🎯</span>
-                <span>Zona Óptima de Entrada (Pullback):</span>
-              </div>
-              <div className="font-mono font-bold text-indigo-200">
-                {formatPrice(signal.entry_zone_min)} – {formatPrice(signal.entry_zone_max)}
-              </div>
+          <div className="flex items-center justify-between rounded-lg bg-indigo-950/40 border border-indigo-500/30 px-3 py-1.5 text-xs">
+            <div className="flex items-center gap-1.5 text-indigo-300 font-semibold">
+              <span>🎯</span>
+              <span>Zona Óptima de Entrada (Pullback):</span>
             </div>
-          )}
+            <div className="font-mono font-bold text-indigo-200">
+              {formatPrice(entryMin)} – {formatPrice(entryMax)}
+            </div>
+          </div>
 
           {/* Trade levels */}
           <div className="grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-5 rounded-lg bg-slate-950/60 p-2.5 sm:p-3 border border-slate-800/80">
             <Stat label="Entrada" value={formatPrice(signal.entry_price)} />
             <Stat
-              label={signal.liquidation_price_est ? "Liq. Est." : "Margen (200€)"}
-              value={
-                signal.liquidation_price_est
-                  ? formatPrice(signal.liquidation_price_est)
-                  : `~$${((4 / (signal.sl_pct / 100)) / Math.min(10, signal.leverage)).toFixed(1)}`
-              }
-              tone={signal.liquidation_price_est ? "text-orange-400 font-mono" : "text-amber-300 font-bold"}
+              label="Liq. Est."
+              value={formatPrice(liqEst)}
+              tone="text-orange-400 font-mono"
             />
             <Stat
               label="Stop-Loss"
