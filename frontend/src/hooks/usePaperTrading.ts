@@ -227,7 +227,44 @@ export function usePaperTrading() {
     };
   }, []);
 
-  // ---- persist changes ----
+  // ---- persist changes (with retry on quota/network errors) ----
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
+
+  const syncToFirestore = (state: AccountState) => {
+    if (sourceRef.current !== "cloud" || !uidRef.current) return;
+    setSyncStatus("syncing");
+    setDoc(
+      doc(db, "users", uidRef.current, "paper", "account"),
+      {
+        balance: state.balance,
+        trades: state.trades,
+        pendingOrders: state.pendingOrders,
+        updated_at: serverTimestamp(),
+      }
+    )
+      .then(() => {
+        setSyncStatus("synced");
+        retryCountRef.current = 0;
+      })
+      .catch((err) => {
+        console.warn("[usePaperTrading] write failed:", err.code);
+        setSyncStatus("local");
+        lastPersistedRef.current = ""; // Mark dirty for next retry
+
+        // Exponential backoff retry: 30s, 60s, 120s, max 5 min
+        if (retryCountRef.current < 8) {
+          const delaySec = Math.min(300, 30 * Math.pow(2, retryCountRef.current));
+          retryCountRef.current++;
+          if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = setTimeout(() => {
+            const latest = loadLocal();
+            syncToFirestore(latest);
+          }, delaySec * 1000);
+        }
+      });
+  };
+
   useEffect(() => {
     if (!ready) return;
     const sig = accountSignature(account);
@@ -235,22 +272,15 @@ export function usePaperTrading() {
     lastPersistedRef.current = sig;
 
     persistLocal(account);
-
-    if (sourceRef.current === "cloud" && uidRef.current) {
-      setDoc(
-        doc(db, "users", uidRef.current, "paper", "account"),
-        {
-          balance: account.balance,
-          trades: account.trades,
-          pendingOrders: account.pendingOrders,
-          updated_at: serverTimestamp(),
-        }
-      ).catch((err) => {
-        console.warn("[usePaperTrading] write failed:", err.code);
-        lastPersistedRef.current = "";
-      });
-    }
+    syncToFirestore(account);
   }, [account, ready]);
+
+  // Cleanup retry timer
+  useEffect(() => {
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, []);
 
   // ---- Auto-fill pending limit orders when price reaches trigger ----
   // Call this from the simulator with live prices

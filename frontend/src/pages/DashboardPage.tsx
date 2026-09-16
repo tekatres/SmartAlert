@@ -52,7 +52,7 @@ export default function DashboardPage() {
   const [sentiment, setSentiment] = useState<MarketSentimentData | null>(null);
   const [signalFilter, setSignalFilter] = useState<"ALL" | "PULLBACK" | "LONG" | "SHORT">("ALL");
   const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const { trades } = usePaperTrading();
+  const { trades, syncStatus, forceSyncToCloud } = usePaperTrading();
   const openTrades = trades.filter((t) => t.status === "OPEN");
 
   useEffect(() => {
@@ -296,14 +296,38 @@ export default function DashboardPage() {
       {/* ---- COPILOTO / ASESOR EN VIVO DE POSICIONES ACTIVAS ---- */}
       {openTrades.length > 0 && (
         <section className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className="text-sm font-black uppercase tracking-wider text-slate-200 flex items-center gap-2">
               <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
               <span>Copiloto Activo · Tus Posiciones Abiertas ({openTrades.length})</span>
             </h2>
-            <span className="text-xs text-slate-400">
-              Asistencia y salida en tiempo real
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-400 hidden sm:inline">
+                Asistencia y salida en tiempo real
+              </span>
+              <button
+                onClick={() => forceSyncToCloud()}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition cursor-pointer"
+                title="Sincronizar posiciones multi-dispositivo con la nube"
+              >
+                {syncStatus === "syncing" ? (
+                  <svg className="w-3.5 h-3.5 text-amber-400 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                ) : syncStatus === "synced" ? (
+                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 00-.1-9.999 5.002 5.002 0 00-9.78 2.096A4.001 4.001 0 003 15z" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                )}
+                <span>
+                  {syncStatus === "synced" ? "Sincronizado Cloud" : syncStatus === "syncing" ? "Sincronizando..." : "Local (Reintentar)"}
+                </span>
+              </button>
+            </div>
           </div>
           <div className="space-y-4">
             {openTrades.map((t) => (
