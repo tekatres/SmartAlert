@@ -676,6 +676,18 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
       // Prevents 13 identical low-quality alerts on every scan
       const isMixedSignal = scoreDiff < 1.5; // longScore ≈ shortScore — market undecided
       if (confluenceScore >= 7 && !isMixedSignal) {
+        const humanSummary = direction === "LONG"
+          ? `Oportunidad alcista en ${item.name}: Soporte cuantitativo validado con ${confluenceScore}/12 pilares alineados a favor.`
+          : `Oportunidad bajista en ${item.name}: Rechazo técnico y presión vendedora con ${confluenceScore}/12 pilares confirmando dirección.`;
+
+        const humanExplanation = [
+          direction === "LONG" ? "Estructura alcista con medias móviles y VWAP actuando como soporte dinámico." : "Estructura bajista bajo medias institucionales.",
+          rsiDiv !== "NONE" ? `Divergencia técnica en RSI (${rsiDiv}) confirmando giro inminente.` : null,
+          candlePat !== "NONE" ? `Patrón de velas de confirmación intradía (${candlePat}).` : null,
+          `Volumen institucional de ${volumeRatio}x respecto a la media de 20 periodos.`,
+          `Precio referencial cerca de VWAP ($${vwap.toFixed(2)}).`
+        ].filter(Boolean).join(" ");
+
         const alertDoc = {
           type: changePct >= 0 ? "price_surge" : "price_dump",
           severity: confluenceScore >= 9 ? "high" : "medium",
@@ -689,8 +701,8 @@ export async function scanLiveMarket(minConfluenceThreshold = 5): Promise<{ scan
           volume_ratio: volumeRatio,
           score: Math.min(98, confluenceScore * 8 + 10),
           title: `${direction === "LONG" ? "🟢" : "🔴"} ${item.symbol} $${entry.toFixed(2)} — Confluencia ${confluenceScore}/12 (${changePct >= 0 ? "+" : ""}${changePct}%)`,
-          summary: `Motor de 9 Pilares para ${item.name}. ADX ${adx.adx.toFixed(1)}, RSI Div: ${rsiDiv}, Confluencia ${confluenceScore}/12.`,
-          explanation: `ADX=${adx.adx.toFixed(1)}, Div RSI=${rsiDiv}, Patrón=${candlePat}, BB B%=${((currentPrice - bb.lower) / (bb.upper - bb.lower) * 100).toFixed(0)}%. VWAP $${vwap.toFixed(2)}.`,
+          summary: humanSummary,
+          explanation: humanExplanation,
           recommended_action: `${direction} en $${entry.toFixed(2)} · SL $${sl.toFixed(2)} (-${slPct}%) · TP1 $${tp1.toFixed(2)} (+${tp1Pct}%)`,
           min_tier: "free",
           created_at: Timestamp.now(),

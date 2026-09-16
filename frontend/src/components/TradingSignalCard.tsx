@@ -9,8 +9,11 @@ import { TradingViewChart } from "@/components/TradingViewChart";
 import { KrakenExecutionModal } from "@/components/KrakenExecutionModal";
 import { SignalOutcomeBadge } from "@/components/SignalOutcomeBadge";
 import { usePaperTrading, PaperTrade } from "@/hooks/usePaperTrading";
+import { useLivePrices } from "@/hooks/useLivePrices";
+import { generateClearSignalExplanation } from "@/utils/signalExplainer";
 
 function formatPrice(p: number) {
+  if (p >= 100) return `$${p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (p >= 1) return `$${p.toLocaleString("en-US", { maximumFractionDigits: 4 })}`;
   return `$${p.toFixed(6)}`;
 }
@@ -40,11 +43,26 @@ function ConfluenceBar({ score, total }: { score: number; total: number }) {
   );
 }
 
-export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
+export function TradingSignalCard({
+  signal,
+  currentPrice: propCurrentPrice,
+}: {
+  signal: TradingSignalDoc;
+  currentPrice?: number;
+}) {
   const [showCalculator, setShowCalculator] = useState(false);
   const [showPaperModal, setShowPaperModal] = useState(false);
   const [showChart, setShowChart] = useState(false);
   const [showKrakenGuide, setShowKrakenGuide] = useState(false);
+  const [showPillarsBreakdown, setShowPillarsBreakdown] = useState(false);
+
+  // Live price subscription (uses prop if supplied from parent Dashboard, else standalone hook)
+  const standaloneLivePrices = useLivePrices(propCurrentPrice !== undefined ? [] : [signal.symbol]);
+  const livePrice = propCurrentPrice ?? standaloneLivePrices[signal.symbol] ?? signal.entry_price;
+
+  // Clear, human-readable signal explanation generator
+  const explanation = generateClearSignalExplanation(signal);
+
   const { trades } = usePaperTrading();
   const activeTrade = trades.find(
     (t) => (t.signalId === signal.id || t.symbol === signal.symbol) && t.status === "OPEN"
@@ -143,6 +161,63 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
       badge: "⏳ ESPERANDO RETROCESO",
       color: "bg-amber-500/20 text-amber-300 border-amber-500/40",
       hint: "Precio sobreextendido. No compres a mercado, espera retroceso a soporte.",
+    };
+  }
+
+  // Real-time calculations using livePrice
+  const rawPnlPct = signal.entry_price > 0
+    ? (isLong ? ((livePrice - signal.entry_price) / signal.entry_price) * 100 : ((signal.entry_price - livePrice) / signal.entry_price) * 100)
+    : 0;
+  const pnlPct = parseFloat(rawPnlPct.toFixed(2));
+  const isInProfit = pnlPct > 0;
+
+  // Real-time distances to TP1 and SL
+  const distToTp1Pct = livePrice > 0 && signal.take_profit_1 > 0
+    ? Math.abs(((livePrice - signal.take_profit_1) / livePrice) * 100)
+    : 0;
+  const distToSlPct = livePrice > 0 && signal.stop_loss > 0
+    ? Math.abs(((livePrice - signal.stop_loss) / livePrice) * 100)
+    : 0;
+
+  const isInEntryZone = livePrice >= entryMin && livePrice <= entryMax;
+  const hasHitTp1 = isLong ? livePrice >= signal.take_profit_1 : livePrice <= signal.take_profit_1;
+  const hasHitSl = isLong ? livePrice <= signal.stop_loss : livePrice >= signal.stop_loss;
+
+  let liveStatusBadge = {
+    label: `⚖️ PRECIO EN RANGO (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
+    color: "bg-slate-800/80 border-slate-700 text-slate-300",
+    hint: "El precio cotiza muy próximo al punto de activación de la señal.",
+  };
+
+  if (hasHitTp1) {
+    liveStatusBadge = {
+      label: `🏁 TP1 ALCANZADO (+${signal.tp1_pct.toFixed(1)}%) — RIESGO CERO`,
+      color: "bg-emerald-500/25 border-emerald-500/50 text-emerald-300 animate-pulse font-black",
+      hint: "Objetivo 1 alcanzado. Asegura el 50% y sube el SL a precio de entrada.",
+    };
+  } else if (hasHitSl) {
+    liveStatusBadge = {
+      label: "🛑 STOP-LOSS ALCANZADO",
+      color: "bg-rose-500/25 border-rose-500/50 text-rose-300 font-black",
+      hint: "El mercado invalidó la hipótesis técnica.",
+    };
+  } else if (isInEntryZone) {
+    liveStatusBadge = {
+      label: "🎯 EN ZONA ÓPTIMA DE ENTRADA",
+      color: "bg-indigo-500/25 border-indigo-500/50 text-indigo-300 font-bold",
+      hint: `Excelente ratio R:R para posicionarse (${formatPrice(entryMin)} – ${formatPrice(entryMax)}).`,
+    };
+  } else if (pnlPct >= 0.3) {
+    liveStatusBadge = {
+      label: `🟢 EN BENEFICIO (+${pnlPct.toFixed(2)}%) — HACIA TP1`,
+      color: "bg-emerald-500/20 border-emerald-500/40 text-emerald-300 font-bold",
+      hint: `A ${distToTp1Pct.toFixed(2)}% de tocar TP1 (${formatPrice(signal.take_profit_1)}).`,
+    };
+  } else if (pnlPct <= -0.3) {
+    liveStatusBadge = {
+      label: `⚠️ EN RETROCESO (${pnlPct.toFixed(2)}%)`,
+      color: "bg-amber-500/20 border-amber-500/40 text-amber-300 font-bold",
+      hint: `A ${distToSlPct.toFixed(2)}% de Stop Loss (${formatPrice(signal.stop_loss)}).`,
     };
   }
 
@@ -281,6 +356,55 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
             </div>
           )}
 
+          {/* ---- HERO PRECIO EN VIVO Y ESTADO DE LA OPERACIÓN ---- */}
+          <div className="rounded-xl bg-slate-950/80 border border-slate-800/80 p-3 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+                  Precio en Vivo · {signal.symbol}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-base sm:text-lg font-black text-slate-100">
+                  {formatPrice(livePrice)}
+                </span>
+                <span
+                  className={clsx(
+                    "rounded px-2 py-0.5 text-xs font-mono font-black border",
+                    isInProfit
+                      ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
+                      : pnlPct < 0
+                      ? "bg-rose-500/15 border-rose-500/30 text-rose-300"
+                      : "bg-slate-800 border-slate-700 text-slate-400"
+                  )}
+                >
+                  {pnlPct > 0 ? `+${pnlPct.toFixed(2)}%` : `${pnlPct.toFixed(2)}%`} vs Entrada
+                </span>
+              </div>
+            </div>
+
+            {/* Estado dinámico del precio respecto a Entrada, TP1 y SL */}
+            <div className="space-y-1.5 pt-0.5 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <span className={clsx("rounded px-2 py-0.5 text-[10px] font-black border", liveStatusBadge.color)}>
+                  {liveStatusBadge.label}
+                </span>
+                <div className="flex items-center gap-2 font-mono text-[11px] text-slate-400">
+                  <span>TP1: <strong className="text-emerald-400">{formatPrice(signal.take_profit_1)}</strong> ({distToTp1Pct.toFixed(1)}%)</span>
+                  <span>·</span>
+                  <span>SL: <strong className="text-rose-400">{formatPrice(signal.stop_loss)}</strong> ({distToSlPct.toFixed(1)}%)</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-tight">
+                {liveStatusBadge.hint}
+              </p>
+            </div>
+          </div>
+
           {/* Semáforo de Entrada / Trigger Status & Quick Copy */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 rounded-lg bg-slate-950/70 border border-slate-800 p-2 text-xs">
             <div className="flex items-center gap-2 min-w-0">
@@ -341,6 +465,91 @@ export function TradingSignalCard({ signal }: { signal: TradingSignalDoc }) {
               <span className="font-bold text-emerald-300">Regla Break-Even: </span>
               <span>Al tocar TP1 ({formatPrice(signal.take_profit_1)}), mueve tu Stop Loss al precio de Entrada ({formatPrice(signal.entry_price)}). Tu riesgo pasará a ser de <strong>0€</strong> y el resto correrá gratis hacia TP2.</span>
             </div>
+          </div>
+
+          {/* ---- EXPLICACIÓN CLARA DEL SETUP Y ANÁLISIS TÉCNICO ---- */}
+          <div className="rounded-xl bg-gradient-to-br from-slate-900/90 via-slate-950 to-slate-900/70 border border-slate-800 p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">💡</span>
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-200">
+                  ¿Por qué esta señal? — Análisis y Tesis
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPillarsBreakdown(!showPillarsBreakdown)}
+                className="text-[11px] text-indigo-400 hover:text-indigo-300 font-bold transition flex items-center gap-1 cursor-pointer"
+              >
+                <span>{showPillarsBreakdown ? "Ocultar 12 Pilares ▴" : "Ver 12 Pilares ▾"}</span>
+              </button>
+            </div>
+
+            {/* Tesis explicada en lenguaje natural */}
+            <p className="text-xs text-slate-300 leading-relaxed font-medium">
+              {explanation.mainThesis}
+            </p>
+
+            {/* Factores Clave Confirmados */}
+            <div className="space-y-1 pt-1">
+              <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400">
+                Factores Determinantes Confirmados:
+              </span>
+              <ul className="space-y-1 text-xs text-slate-300">
+                {explanation.keyDrivers.map((driver, idx) => (
+                  <li key={idx} className="flex items-start gap-2">
+                    <span className="text-emerald-400 font-bold mt-0.5 text-xs shrink-0">✓</span>
+                    <span className="text-slate-300 text-[11px]">{driver}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Plan de Acción / Consejo del Trader */}
+            <div className="rounded-lg bg-indigo-950/30 border border-indigo-500/20 p-2 text-[11px] text-indigo-200 leading-relaxed">
+              <span className="font-bold text-indigo-300">🎯 Plan de Acción: </span>
+              <span>{explanation.actionPlan}</span>
+            </div>
+
+            {/* Aviso de Riesgo / Advertencia si existe */}
+            {explanation.warningNotice && (
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/25 p-2 text-[11px] text-amber-300/90 flex items-start gap-2">
+                <span className="shrink-0 text-xs">⚠️</span>
+                <span>{explanation.warningNotice}</span>
+              </div>
+            )}
+
+            {/* Desglose desplegable de los 12 pilares cuantitativos */}
+            {showPillarsBreakdown && signal.votes && signal.votes.length > 0 && (
+              <div className="mt-2.5 pt-2.5 border-t border-slate-800 space-y-2 animate-in fade-in duration-200">
+                <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  Auditoría de los 12 Pilares Cuantitativos:
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto pr-1">
+                  {signal.votes.map((v, i) => (
+                    <div
+                      key={i}
+                      className={clsx(
+                        "rounded p-2 border text-[10px] flex items-start justify-between gap-1.5",
+                        v.vote === signal.direction
+                          ? "bg-emerald-950/20 border-emerald-500/20 text-emerald-300"
+                          : v.vote === "NEUTRAL"
+                          ? "bg-slate-900/40 border-slate-800 text-slate-400"
+                          : "bg-rose-950/20 border-rose-500/20 text-rose-300"
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <span className="font-bold block">{v.name}</span>
+                        <span className="text-slate-400 truncate block">{v.explanation}</span>
+                      </div>
+                      <span className="font-black font-mono shrink-0">
+                        {v.vote === "LONG" ? "🟢 LONG" : v.vote === "SHORT" ? "🔴 SHORT" : "⚪ NEUTRO"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Collapsible Chart */}

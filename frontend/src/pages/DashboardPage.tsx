@@ -24,6 +24,11 @@ import { BtcGuardBanner } from "@/components/BtcGuardBanner";
 import { MarketProtectionBanner } from "@/components/MarketProtectionBanner";
 import { fetchMarketSentiment, MarketSentimentData } from "@/services/marketSentiment";
 import { usePaperTrading } from "@/hooks/usePaperTrading";
+import { useLivePrices } from "@/hooks/useLivePrices";
+
+const MONITORED_SYMBOLS = [
+  "BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX", "LINK", "NEAR", "OP", "ARB", "APT", "INJ"
+];
 
 // Auto-scan interval: 4 hours in milliseconds
 const AUTO_SCAN_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -54,6 +59,7 @@ export default function DashboardPage() {
   const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { trades, syncStatus, forceSyncToCloud } = usePaperTrading();
   const openTrades = trades.filter((t) => t.status === "OPEN");
+  const livePrices = useLivePrices(MONITORED_SYMBOLS);
 
   useEffect(() => {
     fetchMarketSentiment().then(setSentiment);
@@ -352,7 +358,7 @@ export default function DashboardPage() {
       ) : viewMode === "split" ? (
         <MultiChartSplitView signals={signals} />
       ) : viewMode === "compact" ? (
-        <CompactSignalsView signals={signals} />
+        <CompactSignalsView signals={signals} livePrices={livePrices} />
       ) : isInitialLoading ? (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -451,7 +457,7 @@ export default function DashboardPage() {
                 ) : (
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                     {displayedSignals.map((s) => (
-                      <TradingSignalCard key={s.id} signal={s} />
+                      <TradingSignalCard key={s.id} signal={s} currentPrice={livePrices[s.symbol]} />
                     ))}
                   </div>
                 )}
@@ -496,7 +502,7 @@ export default function DashboardPage() {
 import { Link } from "react-router-dom";
 import type { TradingSignalDoc } from "@/types";
 
-function CompactSignalsView({ signals }: { signals: TradingSignalDoc[] }) {
+function CompactSignalsView({ signals, livePrices }: { signals: TradingSignalDoc[]; livePrices?: Record<string, number> }) {
   if (signals.length === 0) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
@@ -514,7 +520,7 @@ function CompactSignalsView({ signals }: { signals: TradingSignalDoc[] }) {
           ⚡ Vista Compacta · {signals.length} señales activas
         </h2>
         <span className="text-[10px] text-slate-500">
-          Ordenadas por confluencia descendente
+          Precios en vivo y confluencia
         </span>
       </div>
 
@@ -522,7 +528,7 @@ function CompactSignalsView({ signals }: { signals: TradingSignalDoc[] }) {
       <div className="hidden md:grid grid-cols-12 gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-800">
         <span className="col-span-1">Dir.</span>
         <span className="col-span-2">Par</span>
-        <span className="col-span-2">Precio</span>
+        <span className="col-span-2">En Vivo / Entrada</span>
         <span className="col-span-1">Lev.</span>
         <span className="col-span-1">SL%</span>
         <span className="col-span-1">TP1%</span>
@@ -536,6 +542,11 @@ function CompactSignalsView({ signals }: { signals: TradingSignalDoc[] }) {
           const isLong = s.direction === "LONG";
           const cappedLev = Math.min(10, s.leverage);
           const confPct = Math.round((s.confluence_score / s.confluence_total) * 100);
+          const current = livePrices?.[s.symbol];
+          const diffPct = current && s.entry_price > 0
+            ? (isLong ? ((current - s.entry_price) / s.entry_price) * 100 : ((s.entry_price - current) / s.entry_price) * 100)
+            : 0;
+
           return (
             <div
               key={s.id}
@@ -559,8 +570,26 @@ function CompactSignalsView({ signals }: { signals: TradingSignalDoc[] }) {
 
               <div className="col-span-2 font-black text-slate-100">{s.symbol}</div>
 
-              <div className="col-span-2 font-mono text-slate-200">
-                ${s.entry_price.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+              <div className="col-span-2 font-mono">
+                {current ? (
+                  <>
+                    <span className="block font-bold text-slate-100">
+                      ${current.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+                    </span>
+                    <span
+                      className={clsx(
+                        "block text-[10px] font-semibold",
+                        diffPct > 0 ? "text-emerald-400" : diffPct < 0 ? "text-rose-400" : "text-slate-400"
+                      )}
+                    >
+                      {diffPct > 0 ? `+${diffPct.toFixed(2)}%` : `${diffPct.toFixed(2)}%`} vs ent.
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-slate-200">
+                    ${s.entry_price.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+                  </span>
+                )}
               </div>
 
               <div className="col-span-1 font-bold text-amber-300">{cappedLev}x</div>
